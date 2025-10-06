@@ -1,72 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, Button, AppState, Linking } from 'react-native';
+import { Text, View, StyleSheet, Button, Linking } from 'react-native';
+import { CameraView, Camera } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import {
-  Camera,
-  useCameraDevice,
-  useCameraPermission,
-  useCodeScanner,
-} from 'react-native-vision-camera';
-import { useFocusEffect } from 'expo-router';
 
 export default function BarcodeScanner() {
-  const router = useRouter();
-  const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice('back');
-  const [isActive, setIsActive] = useState(true);
-
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [scanned, setScanned] = useState(false);
   const [scannedData, setScannedData] = useState(null);
   const [bounds, setBounds] = useState(null);
+  const router = useRouter();
 
   // --- Start: Handle Camera Permission ---
   useEffect(() => {
-    if (!hasPermission) {
-      requestPermission();
-    }
-  }, [hasPermission]);
+    const getCameraPermissions = async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+    };
 
-  // If the user denied permission, show a button to open settings
+    getCameraPermissions();
+  }, []);
+
   const handleOpenSettings = () => {
     Linking.openSettings();
   };
   // --- End: Handle Camera Permission ---
 
 
-  // --- Start: Handle App State (e.g., app goes to background) ---
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        setIsActive(true);
-      } else {
-        setIsActive(false);
-      }
-    });
-    return () => subscription.remove();
-  }, []);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      setIsActive(true); // When screen is focused
-      return () => {
-        setIsActive(false); // When screen is unfocused
-      };
-    }, [])
-  );
-  // --- End: Handle App State ---
-
-
   // --- Start: Barcode Scanning Logic ---
-  const codeScanner = useCodeScanner({
-    codeTypes: ['qr', 'ean-13', 'code-128'],
-    onCodeScanned: (codes) => {
-      if (codes.length > 0 && !scannedData) {
-        const code = codes[0];
-        console.log('Scanned Barcode:', code);
-        setScannedData(code.value);
-        setBounds(code.frame);
-      }
-    },
-  });
+  const handleBarCodeScanned = ({ type, data, bounds: scannedBounds }) => {
+    if (!scanned) {
+        console.log(`Scanned data: ${data}`);
+        console.log('Received bounds:', scannedBounds);
+        setScanned(true);
+        setScannedData(data);
+        setBounds(scannedBounds);
+    }
+  };
   // --- End: Barcode Scanning Logic ---
 
 
@@ -78,6 +47,7 @@ export default function BarcodeScanner() {
   };
 
   const handleScanAgain = () => {
+    setScanned(false);
     setScannedData(null);
     setBounds(null);
   };
@@ -85,44 +55,44 @@ export default function BarcodeScanner() {
 
 
   // --- Start: Render UI ---
-  if (!hasPermission) {
-    return (
-      <View style={styles.container}>
-        <Text style={{ textAlign: 'center' }}>We need your permission to show the camera</Text>
-        <Button onPress={handleOpenSettings} title="Grant Permission" />
-      </View>
-    );
+  if (hasPermission === null) {
+    return <Text>Requesting for camera permission</Text>;
   }
-
-  if (device == null) {
+  if (hasPermission === false) {
     return (
-      <View style={styles.container}>
-        <Text style={{ textAlign: 'center' }}>No camera device found.</Text>
-      </View>
+        <View style={styles.container}>
+            <Text style={{ textAlign: 'center', marginBottom: 20 }}>We need your permission to show the camera</Text>
+            <Button onPress={handleOpenSettings} title="Grant Permission in Settings" />
+        </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Camera
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={isActive}
-        codeScanner={codeScanner}
+      <CameraView
+        onBarcodeScanned={handleBarCodeScanned}
+        barcodeScannerSettings={{
+          barcodeTypes: ["qr", "pdf417", "ean13", "code128"],
+        }}
+        style={StyleSheet.absoluteFillObject}
       />
 
       {bounds && (
         <View
-          style={[styles.boundingBox, {
-            left: bounds.x,
-            top: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-          }]}
+          style={{
+            position: 'absolute',
+            borderColor: '#00FF00',
+            borderWidth: 4,
+            borderRadius: 10,
+            left: bounds.origin.x,
+            top: bounds.origin.y,
+            width: bounds.size.width,
+            height: bounds.size.height,
+          }}
         />
       )}
 
-      {scannedData && (
+      {scanned && (
         <View style={styles.buttonContainer}>
           <Text style={styles.scannedDataText}>Scanned: {scannedData}</Text>
           <Button title={'Use this Code'} onPress={handleUseCode} />
@@ -135,29 +105,24 @@ export default function BarcodeScanner() {
 // --- End: Render UI ---
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    backgroundColor: 'black',
-  },
-  boundingBox: {
-    position: 'absolute',
-    borderColor: '#00FF00',
-    borderWidth: 4,
-    borderRadius: 10,
-  },
-  buttonContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    alignItems: 'center',
-  },
-  scannedDataText: {
-    color: 'white',
-    fontSize: 16,
-    marginBottom: 10,
-  }
+    container: {
+      flex: 1,
+      flexDirection: 'column',
+      justifyContent: 'center',
+      backgroundColor: 'black'
+    },
+    buttonContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      padding: 20,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      alignItems: 'center',
+    },
+    scannedDataText: {
+      color: 'white',
+      fontSize: 16,
+      marginBottom: 10,
+    }
 });

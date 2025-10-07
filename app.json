@@ -72,9 +72,7 @@
       }
     },
     "owner": "ben_nyakaz",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/b8c7811b-7f08-4178-856c-adddcd3dc6fa"
     }

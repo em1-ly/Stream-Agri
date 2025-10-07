@@ -338,17 +338,7 @@ export class Connector implements PowerSyncBackendConnector {
           console.log('#############PUT#################')
           console.log('PUTTING DATA', id)
           console.log('RECORD DATA', recordData)
-          // const options = {
-          //   method: 'POST',
-          //   url: 'http://45.84.138.225:8070/api/fo/create-grower-application',
-          //   headers: {
-          //     cookie: 'frontend_lang=en_GB',
-          //     'Content-Type': 'application/json',
-          //     'User-Agent': 'insomnia/11.1.0',
-          //     'X-FO-TOKEN': 'cbefac43-2357-460f-8d4a-4dd73ebed56c'
-          //   },
-          //   data: recordData
-          // };
+          console.log('TABLE NAME', op.table)
           
           // If op.table include odoo_gms_ then remove odoo_gms_ from the table name
           let tableName = op.table
@@ -356,29 +346,55 @@ export class Connector implements PowerSyncBackendConnector {
             tableName = tableName.replace('odoo_gms_', '')
           }
 
+          let response;
 
-          const options = {
-            method: 'POST',
-            url: `${normalizedServerURL}/api/fo/create`,
-            headers: {
-              'Content-Type': 'application/json',
-              // 'User-Agent': 'insomnia/11.2.0',
-              'X-FO-TOKEN': token
-            },
-            data: {
-              jsonrpc: '2.0',
-              method: 'call',
-              params: {
-                type: tableName,
-                data: recordData
+          // Special handling for receiving_bale table
+          if (op.table === 'receiving_bale') {
+            console.log('🎯 Using custom add-bale endpoint for receiving_bale');
+            const baleOptions = {
+              method: 'POST',
+              url: `${normalizedServerURL}/api/fo/add-bale/`,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-FO-TOKEN': token
+              },
+              data: {
+                jsonrpc: '2.0',
+                method: 'call',
+                params: {
+                  document_number: (recordData as any).document_number || (recordData as any).grower_delivery_note_id,
+                  barcode: (recordData as any).scale_barcode,
+                  lot_number: (recordData as any).lot_number,
+                  group_number: (recordData as any).group_number
+                },
+                id: 1
               }
-            }
-          };
+            };
+            response = await axios.request(baleOptions);
+            console.log('✅ Add bale response', response.data);
+          } else {
+            // Default handling for other tables
+            const options = {
+              method: 'POST',
+              url: `${normalizedServerURL}/api/fo/create`,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-FO-TOKEN': token
+              },
+              data: {
+                jsonrpc: '2.0',
+                method: 'call',
+                params: {
+                  type: tableName,
+                  data: recordData
+                }
+              }
+            };
+            response = await axios.request(options);
+            console.log('PUT response', response.data);
+          }
           
-          const response = await axios.request(options)
-          console.log('PUT response', response.data)
           console.log('#####################################################')
-          // console.log('PUT RECORD', record)
           console.log('#####################################################')
           
           const serverRecord = await response.data

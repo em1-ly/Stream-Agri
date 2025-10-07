@@ -164,7 +164,7 @@ const GrowerNoteItem = ({ item }: { item: GrowerDeliveryNote }) => {
     return (
         <TouchableOpacity 
           className="bg-white rounded-xl p-4 mb-3 border border-gray-100 shadow-sm" 
-          // onPress={() => router.push(...)} // Add navigation to a detail view later
+          onPress={() => router.push(`/receiving/${item.id}`)}
         >
             <View className="flex-row items-center justify-between">
                 <View className="flex-row items-center">

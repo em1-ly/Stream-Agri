@@ -1,128 +1,130 @@
 import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, Button, Linking } from 'react-native';
+import { Text, View, TouchableOpacity, Alert } from 'react-native';
 import { CameraView, Camera } from 'expo-camera';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { X } from 'lucide-react-native';
 
-export default function BarcodeScanner() {
+export default function BarcodeScannerScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [scanned, setScanned] = useState(false);
-  const [scannedData, setScannedData] = useState(null);
-  const [bounds, setBounds] = useState(null);
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const scanType = params.scanType as string || 'document'; // 'document' or 'bale'
 
-  // --- Start: Handle Camera Permission ---
   useEffect(() => {
     const getCameraPermissions = async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
+      try {
+        console.log('Requesting camera permissions...');
+        const { status } = await Camera.requestCameraPermissionsAsync();
+        console.log('Camera permission status:', status);
+        setHasPermission(status === 'granted');
+      } catch (error) {
+        console.error('Error requesting camera permissions:', error);
+        Alert.alert('Error', 'Failed to request camera permissions');
+        setHasPermission(false);
+      }
     };
 
     getCameraPermissions();
   }, []);
 
-  const handleOpenSettings = () => {
-    Linking.openSettings();
-  };
-  // --- End: Handle Camera Permission ---
-
-
-  // --- Start: Barcode Scanning Logic ---
-  const handleBarCodeScanned = ({ type, data, bounds: scannedBounds }) => {
-    if (!scanned) {
-        console.log(`Scanned data: ${data}`);
-        console.log('Received bounds:', scannedBounds);
-        setScanned(true);
-        setScannedData(data);
-        setBounds(scannedBounds);
+  const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
+    console.log('Barcode scanned:', type, data, 'for', scanType);
+    setScanned(true);
+    
+    if (scanType === 'bale') {
+      // For bale barcode, pass back the scanned barcode and the document number
+      const docNum = params.documentNumber as string;
+      router.push({
+        pathname: '/receiving/add-bale-to-gd-note',
+        params: { 
+          scannedBaleBarcode: data, 
+          documentNumber: docNum,
+          preserveState: 'true' 
+        }
+      });
+    } else {
+      // For document number, use push to start fresh
+      router.push({
+        pathname: '/receiving/add-bale-to-gd-note',
+        params: { scannedBarcode: data }
+      });
     }
   };
-  // --- End: Barcode Scanning Logic ---
 
-
-  // --- Start: Navigation and Reset ---
-  const handleUseCode = () => {
-    if (scannedData) {
-      router.replace({ pathname: '/(app)/receiving/sequencing-scanner', params: { scannedBarcode: scannedData } });
-    }
-  };
-
-  const handleScanAgain = () => {
-    setScanned(false);
-    setScannedData(null);
-    setBounds(null);
-  };
-  // --- End: Navigation and Reset ---
-
-
-  // --- Start: Render UI ---
   if (hasPermission === null) {
-    return <Text>Requesting for camera permission</Text>;
+    return (
+      <View className="flex-1 bg-black items-center justify-center">
+        <Text className="text-white text-lg">Requesting camera permission...</Text>
+      </View>
+    );
   }
+
   if (hasPermission === false) {
     return (
-        <View style={styles.container}>
-            <Text style={{ textAlign: 'center', marginBottom: 20 }}>We need your permission to show the camera</Text>
-            <Button onPress={handleOpenSettings} title="Grant Permission in Settings" />
-        </View>
+      <View className="flex-1 bg-black items-center justify-center p-5">
+        <Stack.Screen options={{ headerShown: false }} />
+        <Text className="text-white text-lg text-center mb-5">
+          Camera permission is required to scan barcodes
+        </Text>
+        <TouchableOpacity
+          className="bg-[#65435C] rounded-lg py-3 px-6"
+          onPress={() => router.back()}
+        >
+          <Text className="text-white font-bold">Go Back</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-black">
+      <Stack.Screen options={{ headerShown: false }} />
       <CameraView
-        onBarcodeScanned={handleBarCodeScanned}
+        style={{ flex: 1 }}
+        facing="back"
+        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
         barcodeScannerSettings={{
-          barcodeTypes: ["qr", "pdf417", "ean13", "code128"],
+          barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'codabar', 'upc_a', 'upc_e'],
         }}
-        style={StyleSheet.absoluteFillObject}
-      />
+      >
+        <View className="flex-1">
+          {/* Close button */}
+          <TouchableOpacity
+            className="absolute top-12 right-5 bg-black/50 rounded-full p-3"
+            onPress={() => router.back()}
+          >
+            <X color="white" size={24} />
+          </TouchableOpacity>
 
-      {bounds && (
-        <View
-          style={{
-            position: 'absolute',
-            borderColor: '#00FF00',
-            borderWidth: 4,
-            borderRadius: 10,
-            left: bounds.origin.x,
-            top: bounds.origin.y,
-            width: bounds.size.width,
-            height: bounds.size.height,
-          }}
-        />
-      )}
+          {/* Scanning frame */}
+          <View className="flex-1 items-center justify-center">
+            <View className="w-72 h-72 border-2 border-white rounded-lg">
+              <View className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#65435C]" />
+              <View className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#65435C]" />
+              <View className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#65435C]" />
+              <View className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#65435C]" />
+            </View>
+            <Text className="text-white text-lg mt-8 text-center px-5">
+              {scanType === 'bale' ? 'Scan Bale Barcode' : 'Scan Document Number'}
+            </Text>
+            <Text className="text-white text-sm mt-2 text-center px-5 opacity-80">
+              Position the barcode within the frame
+            </Text>
+          </View>
 
-      {scanned && (
-        <View style={styles.buttonContainer}>
-          <Text style={styles.scannedDataText}>Scanned: {scannedData}</Text>
-          <Button title={'Use this Code'} onPress={handleUseCode} />
-          <Button title={'Tap to Scan Again'} onPress={handleScanAgain} />
+          {scanned && (
+            <View className="absolute bottom-10 left-0 right-0 items-center">
+              <TouchableOpacity
+                className="bg-[#65435C] rounded-lg py-3 px-6"
+                onPress={() => setScanned(false)}
+              >
+                <Text className="text-white font-bold">Tap to Scan Again</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-      )}
+      </CameraView>
     </View>
   );
 }
-// --- End: Render UI ---
-
-const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      flexDirection: 'column',
-      justifyContent: 'center',
-      backgroundColor: 'black'
-    },
-    buttonContainer: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      padding: 20,
-      backgroundColor: 'rgba(0,0,0,0.7)',
-      alignItems: 'center',
-    },
-    scannedDataText: {
-      color: 'white',
-      fontSize: 16,
-      marginBottom: 10,
-    }
-});

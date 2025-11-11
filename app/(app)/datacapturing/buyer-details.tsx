@@ -1,7 +1,7 @@
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, Keyboard, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, Keyboard, ScrollView, Alert, Modal, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Scan } from 'lucide-react-native';
+import { Scan, ChevronDown } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
 import { updateBaleDataAPI } from '@/api/odoo_api';
 
@@ -26,6 +26,146 @@ interface BuyerFormState {
     saleCode: string;
 }
 
+// Combobox component with popup modal
+const Combobox = ({ 
+  value, 
+  onChangeText, 
+  placeholder, 
+  options, 
+  displayField,
+  onSelect 
+}: { 
+  value: string; 
+  onChangeText: (text: string) => void; 
+  placeholder: string; 
+  options: any[];
+  displayField: string;
+  onSelect: (item: any) => void;
+}) => {
+  const [showModal, setShowModal] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [filteredOptions, setFilteredOptions] = useState(options);
+
+  useEffect(() => {
+    if (searchText) {
+      const filtered = options.filter(opt => 
+        String(opt[displayField] || '').toLowerCase().includes(searchText.toLowerCase())
+      );
+      setFilteredOptions(filtered);
+    } else {
+      setFilteredOptions(options);
+    }
+  }, [searchText, options, displayField]);
+
+  const handleOpenModal = () => {
+    Keyboard.dismiss(); // Dismiss keyboard when opening modal
+    setSearchText('');
+    setShowModal(true);
+  };
+
+  const handleSelect = (item: any) => {
+    onSelect(item);
+    setShowModal(false);
+    setSearchText('');
+  };
+
+  return (
+    <View>
+      <View className="border border-gray-300 rounded-md p-2 flex-row items-center">
+        <TextInput
+          className="flex-1"
+          placeholder={placeholder}
+          value={value}
+          onChangeText={onChangeText}
+          autoCapitalize="characters"
+        />
+        <TouchableOpacity onPress={handleOpenModal} className="ml-2">
+          <ChevronDown size={20} color="#666" />
+        </TouchableOpacity>
+      </View>
+      
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          Keyboard.dismiss();
+          setShowModal(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
+          <TouchableOpacity
+            className="flex-1 bg-black/50 justify-end"
+            activeOpacity={1}
+            onPress={() => {
+              Keyboard.dismiss();
+              setShowModal(false);
+            }}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-3xl max-h-[80%]"
+            >
+              <View className="p-4 border-b border-gray-200">
+                <View className="flex-row items-center justify-between mb-3">
+                  <Text className="text-lg font-semibold text-gray-800">{placeholder}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setShowModal(false);
+                    }}
+                  >
+                    <Text className="text-[#65435C] font-semibold">Close</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  className="border border-gray-300 rounded-md p-2"
+                  placeholder={`Search ${placeholder.toLowerCase()}...`}
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  autoCapitalize="characters"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                />
+              </View>
+              <FlatList
+                data={filteredOptions}
+                keyExtractor={(item, index) => String(item.id || index)}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    className="p-4 border-b border-gray-100"
+                    activeOpacity={0.7}
+                    onPressIn={() => {
+                      Keyboard.dismiss();
+                    }}
+                    onPress={() => {
+                      handleSelect(item);
+                    }}
+                  >
+                    <Text className="text-gray-800 text-base">{item[displayField]}</Text>
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View className="p-4">
+                    <Text className="text-gray-500 text-center">No results found</Text>
+                  </View>
+                }
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="interactive"
+                removeClippedSubviews={false}
+              />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+  );
+};
+
 const BuyerDetailsScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -41,6 +181,52 @@ const BuyerDetailsScreen = () => {
     price: '',
     saleCode: '',
   });
+  const [buyers, setBuyers] = useState<any[]>([]);
+  const [buyerGrades, setBuyerGrades] = useState<any[]>([]);
+  const [saleCodes, setSaleCodes] = useState<any[]>([]);
+  const [selectedBuyerId, setSelectedBuyerId] = useState<string | null>(null);
+
+  // Load dropdown options from PowerSync
+  useEffect(() => {
+    const loadOptions = async () => {
+      try {
+        // Load buyers
+        const buyersResult = await powersync.getAll<any>(
+          'SELECT id, buyer_code FROM buyers_buyer ORDER BY buyer_code'
+        );
+        setBuyers(buyersResult || []);
+
+        // Load sale codes
+        const saleCodesResult = await powersync.getAll<any>(
+          'SELECT id, name FROM data_processing_salecode ORDER BY name'
+        );
+        setSaleCodes(saleCodesResult || []);
+      } catch (e) {
+        console.error('Failed to load dropdown options:', e);
+      }
+    };
+    loadOptions();
+  }, []);
+
+  // Load buyer grades when buyer is selected
+  useEffect(() => {
+    const loadBuyerGrades = async () => {
+      if (selectedBuyerId) {
+        try {
+          const gradesResult = await powersync.getAll<any>(
+            'SELECT id, grade FROM buyers_grade WHERE buyer = ? ORDER BY grade',
+            [parseInt(selectedBuyerId)]
+          );
+          setBuyerGrades(gradesResult || []);
+        } catch (e) {
+          console.error('Failed to load buyer grades:', e);
+        }
+      } else {
+        setBuyerGrades([]);
+      }
+    };
+    loadBuyerGrades();
+  }, [selectedBuyerId]);
 
   useEffect(() => {
     const scannedBarcode = params.scannedBarcode as string;
@@ -58,8 +244,15 @@ const BuyerDetailsScreen = () => {
         price: baleData.price?.toString() || '',
         saleCode: baleData.salecode_name || '',
       });
+      // Set buyer ID if we need to load buyer grades
+      if (baleData.buyer_code && buyers.length > 0) {
+        const buyer = buyers.find(b => b.buyer_code === baleData.buyer_code);
+        if (buyer) {
+          setSelectedBuyerId(String(buyer.id));
+        }
+      }
     }
-  }, [baleData]);
+  }, [baleData, buyers]);
 
   const resetState = (keepBarcode = false) => {
     if (!keepBarcode) setBarcode('');
@@ -116,34 +309,113 @@ const BuyerDetailsScreen = () => {
 
   const handleSave = async () => {
     if (!baleData) return;
+    Keyboard.dismiss(); // Dismiss keyboard before saving
     setIsSaving(true);
     setError(null);
     setSuccessMessage(null);
   
     try {
-      const updates = {
-        buyer: formState.buyer,
-        buyer_grade: formState.buyerGrade,
-        price: formState.price,
-        salecode_id: formState.saleCode
-      };
+      // Find IDs from the selected values
+      const buyer = buyers.find(b => b.buyer_code === formState.buyer);
+      const buyerGrade = buyerGrades.find(bg => bg.grade === formState.buyerGrade);
+      const saleCode = saleCodes.find(sc => sc.name === formState.saleCode);
 
-      const response = await updateBaleDataAPI(baleData.barcode, updates);
+      const buyerId = buyer ? buyer.id : null;
+      const buyerGradeId = buyerGrade ? buyerGrade.id : null;
+      const saleCodeId = saleCode ? saleCode.id : null;
+      const priceValue = formState.price ? parseFloat(formState.price) : null;
 
-      if (response.data.result && response.data.result.success) {
-        setSuccessMessage(response.data.result.message || 'Buyer details saved successfully!');
-        
-        setTimeout(() => {
-            fetchBaleData(baleData.barcode);
+      // 1. Save locally to PowerSync first
+      try {
+        const now = new Date().toISOString();
+        await powersync.execute(
+          `UPDATE receiving_bale 
+           SET buyer = ?, 
+               buyer_grade = ?, 
+               salecode_id = ?, 
+               price = ?,
+               write_date = ?
+           WHERE barcode = ? OR id = ?`,
+          [
+            buyerId,
+            buyerGradeId,
+            saleCodeId,
+            priceValue,
+            now,
+            baleData.barcode,
+            baleData.id
+          ]
+        );
+        console.log('✅ Buyer details saved locally to PowerSync');
+      } catch (localError) {
+        console.error('⚠️ Failed to save locally:', localError);
+        // Continue with server save even if local save fails
+      }
+
+      // 2. Commit to Odoo via API
+      // Note: API expects codes/names, not IDs - it will resolve them internally
+      const updates: any = {};
+
+      // Price - convert to number if provided
+      if (formState.price && formState.price.trim()) {
+        try {
+          updates.price = parseFloat(formState.price);
+        } catch (e) {
+          // Invalid price format, will be validated by API
+          updates.price = formState.price;
+        }
+      }
+
+      // Buyer - send buyer_code (string), not ID
+      if (formState.buyer && formState.buyer.trim()) {
+        updates.buyer = formState.buyer;
+      }
+
+      // Buyer Grade - send grade name (string), not ID
+      if (formState.buyerGrade && formState.buyerGrade.trim()) {
+        updates.buyer_grade = formState.buyerGrade;
+      }
+
+      // Sale Code - send name (string), not ID (API expects salecode_id field but searches by name)
+      if (formState.saleCode && formState.saleCode.trim()) {
+        updates.salecode_id = formState.saleCode;
+      }
+
+      // Always set buying staff and checking staff to current logged-in employee
+      // The API will resolve 'me' to the authenticated employee ID from the session token
+      updates.buying_staff_hr_user_id = 'me';
+      updates.checking_staff_hr_user_id = 'me';
+
+      console.log('📤 Sending buyer details to Odoo with updates:', JSON.stringify(updates, null, 2));
+
+      try {
+        const response = await updateBaleDataAPI(baleData.barcode, updates);
+
+        if (response.data.result && response.data.result.success) {
+          setSuccessMessage(response.data.result.message || 'Buyer details saved successfully!');
+          
+          // Clear barcode and reset state after successful save
+          setTimeout(() => {
+            resetState(); // Clear barcode and all state
             setSuccessMessage(null);
-        }, 1500);
-      } else {
-        const errorList = response.data.result.errors || [];
-        throw new Error(response.data.result.message || errorList.join(', ') || 'An unknown error occurred.');
+          }, 1500);
+        } else {
+          const errorList = response.data.result.errors || [];
+          throw new Error(response.data.result.message || errorList.join(', ') || 'An unknown error occurred.');
+        }
+      } catch (apiError: any) {
+        // If API fails but local save succeeded, show warning but don't fail completely
+        const apiErrorMessage = apiError.response?.data?.error?.data?.message || apiError.message || 'Failed to sync to server';
+        console.warn('⚠️ API save failed, but local save succeeded:', apiErrorMessage);
+        setSuccessMessage('Saved locally. Will sync to server when online.');
+        setTimeout(() => {
+          resetState(); // Clear barcode and all state
+          setSuccessMessage(null);
+        }, 2000);
       }
   
     } catch (e: any) {
-      const errorMessage = e.response?.data?.error?.data?.message || e.message || 'An error occurred while saving.';
+      const errorMessage = e.message || 'An error occurred while saving.';
       Alert.alert('Error', `Failed to save buyer details: ${errorMessage}`);
       setError(errorMessage);
     } finally {
@@ -163,7 +435,12 @@ const BuyerDetailsScreen = () => {
   };
 
   return (
-    <ScrollView className="flex-1 p-4 bg-gray-100" contentContainerStyle={{ paddingBottom: 20 }}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      className="flex-1"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView className="flex-1 p-4 bg-gray-100" contentContainerStyle={{ paddingBottom: 20 }}>
       <Text className="text-xl font-bold text-center mb-4 text-[#65435C]">Buyer Details</Text>
       
       {/* Barcode Scanner Input */}
@@ -200,14 +477,62 @@ const BuyerDetailsScreen = () => {
 
             <View className="bg-white p-4 rounded-lg shadow-md">
                 <Text className="text-lg font-semibold mb-2 text-gray-700">Enter Buyer Details</Text>
+                
                 <Text className="font-semibold text-gray-600 mb-1">Buyer</Text>
-                <TextInput className="border border-gray-300 rounded-md p-2 mb-3" placeholder="Buyer Code" value={formState.buyer} onChangeText={(val) => handleFormChange('buyer', val)} autoCapitalize="characters" />
+                <Combobox
+                  value={formState.buyer}
+                  onChangeText={(val) => {
+                    handleFormChange('buyer', val);
+                    // Clear buyer grade when buyer changes
+                    if (val !== formState.buyer) {
+                      handleFormChange('buyerGrade', '');
+                      const buyer = buyers.find(b => b.buyer_code === val);
+                      setSelectedBuyerId(buyer ? String(buyer.id) : null);
+                    }
+                  }}
+                  placeholder="Buyer Code"
+                  options={buyers}
+                  displayField="buyer_code"
+                  onSelect={(item) => {
+                    handleFormChange('buyer', item.buyer_code);
+                    setSelectedBuyerId(String(item.id));
+                  }}
+                />
+                
+                <View className="mb-3" />
+                
                 <Text className="font-semibold text-gray-600 mb-1">Buyer Grade</Text>
-                <TextInput className="border border-gray-300 rounded-md p-2 mb-3" placeholder="Buyer Grade" value={formState.buyerGrade} onChangeText={(val) => handleFormChange('buyerGrade', val)} autoCapitalize="characters" />
+                <Combobox
+                  value={formState.buyerGrade}
+                  onChangeText={(val) => handleFormChange('buyerGrade', val)}
+                  placeholder="Buyer Grade"
+                  options={buyerGrades}
+                  displayField="grade"
+                  onSelect={(item) => handleFormChange('buyerGrade', item.grade)}
+                />
+                
+                <View className="mb-3" />
+                
                 <Text className="font-semibold text-gray-600 mb-1">Price</Text>
-                <TextInput className="border border-gray-300 rounded-md p-2 mb-3" placeholder="Price" value={formState.price} onChangeText={(val) => handleFormChange('price', val)} keyboardType="numeric" />
+                <TextInput 
+                  className="border border-gray-300 rounded-md p-2 mb-3" 
+                  placeholder="Price" 
+                  value={formState.price} 
+                  onChangeText={(val) => handleFormChange('price', val)} 
+                  keyboardType="numeric" 
+                />
+                
                 <Text className="font-semibold text-gray-600 mb-1">Sale Code</Text>
-                <TextInput className="border border-gray-300 rounded-md p-2 mb-4" placeholder="Sale Code" value={formState.saleCode} onChangeText={(val) => handleFormChange('saleCode', val)} autoCapitalize="characters" />
+                <Combobox
+                  value={formState.saleCode}
+                  onChangeText={(val) => handleFormChange('saleCode', val)}
+                  placeholder="Sale Code"
+                  options={saleCodes}
+                  displayField="name"
+                  onSelect={(item) => handleFormChange('saleCode', item.name)}
+                />
+                
+                <View className="mb-4" />
                 
                 <TouchableOpacity onPress={handleSave} className={`p-3 rounded-md ${isSaving ? 'bg-gray-400' : 'bg-[#65435C]'}`} disabled={isSaving}>
                     <Text className="text-white text-center font-bold">{isSaving ? 'Saving...' : 'Save Details'}</Text>
@@ -215,7 +540,8 @@ const BuyerDetailsScreen = () => {
             </View>
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 

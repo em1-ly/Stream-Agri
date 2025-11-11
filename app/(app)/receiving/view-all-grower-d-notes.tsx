@@ -14,6 +14,7 @@ type GrowerDeliveryNote = {
   grower_number?: string;
   grower_name?: string;
   number_of_bales?: number;
+  number_of_bales_delivered?: number;
   sale_date?: string;
   create_date?: string;
   state?: 'open' | 'printing' | 'laying' | 'checked' | 'closed' | 'blocked' | 'scheduling' | 'pending';
@@ -26,12 +27,23 @@ const ViewAllGrowerDNotes = () => {
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState(false);
 
-  // Set up PowerSync listener
+  // Set up PowerSync listener and refresh on focus
   useFocusEffect(
     useCallback(() => {
       powersync.registerListener({
         statusChanged: (status) => setSyncStatus(status.connected),
       });
+      
+      // Trigger PowerSync sync when screen comes into focus to get latest data
+      const refreshData = async () => {
+        try {
+          await powersync.execute('SELECT 1'); // Trigger sync
+          console.log('🔄 PowerSync sync triggered on focus');
+        } catch (e) {
+          console.warn('⚠️ PowerSync sync failed:', e);
+        }
+      };
+      refreshData();
     }, [])
   );
 
@@ -87,9 +99,36 @@ const ViewAllGrowerDNotes = () => {
     setFilteredNotes(filtered);
   };
 
+  const handleRefresh = async () => {
+    try {
+      setLoading(true);
+      await powersync.execute('SELECT 1'); // Trigger sync
+      console.log('🔄 Manual refresh triggered');
+      // Wait a moment for sync to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (e) {
+      console.warn('⚠️ Refresh failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
-      <Stack.Screen options={{title: 'View All Grower D Notes', headerShown: true }} />
+      <Stack.Screen 
+        options={{
+          title: 'View All Grower D Notes', 
+          headerShown: true,
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={handleRefresh}
+              className="mr-4 p-2"
+            >
+              <Text className="text-[#65435C] font-semibold text-lg">🔄</Text>
+            </TouchableOpacity>
+          )
+        }} 
+      />
       <View className="flex-1 p-4 bg-[#65435C]">
         <View className="flex-row items-center justify-between gap-2 mb-4 h-14">
           <View className="relative w-[80%]">

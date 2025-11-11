@@ -885,6 +885,8 @@ const receiving_transporter_delivery_note = new Table(
     write_uid: column.integer,
     create_date: column.text,
     write_date: column.text,
+    creditor: column.text,
+    physical_dnote_number: column.text,
   },
   { indexes: {} }
 );
@@ -929,6 +931,18 @@ const receiving_grower_delivery_note = new Table({
   write_uid: column.integer,
   create_date: column.text,
   write_date: column.text,
+});
+
+// Local-only drafts for Scale Bale session pause/resume
+const sequencing_session_drafts = new Table({
+  id: column.text, // UUID
+  draft_name: column.text,
+  form_data: column.text, // JSON string payload
+  created_at: column.text,
+  modified_at: column.text,
+  submitted_by: column.text,
+}, {
+  localOnly: true
 });
 
 const receiving_bale = new Table(
@@ -1130,6 +1144,17 @@ const floor_maintenance_bale_location = new Table({
   write_date: column.text,
 });
 
+// Ticket printing batches created when a GD Note completes
+const receiving_ticket_printing_batch = new Table({
+  // Odoo model: receiving.ticket_printing_batch
+  grower_delivery_note_id: column.integer,
+  state: column.text,
+  create_uid: column.integer,
+  write_uid: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+});
+
 
 export const AppSchema = new Schema({
   hr_employee,
@@ -1160,6 +1185,10 @@ export const AppSchema = new Schema({
   odoo_gms_hr_management,
   res_company,
   ir_config_parameter,
+
+
+
+  
   // --- start of receiving tables ---
   receiving_transporter_delivery_note,
   receiving_grower_delivery_note,
@@ -1174,7 +1203,9 @@ export const AppSchema = new Schema({
   buyers_grade,
   data_processing_salecode,
   receiving_hessian,
-  floor_maintenance_bale_location
+  floor_maintenance_bale_location,
+  receiving_ticket_printing_batch,
+  sequencing_session_drafts
 });
 
 
@@ -1229,3 +1260,5 @@ export type BuyerGradeRecord = Database['buyers_grade'];
 export type SaleCodeRecord = Database['data_processing_salecode'];
 export type HessianRecord = Database['receiving_hessian'];
 export type BaleLocationRecord = Database['floor_maintenance_bale_location'];
+export type TicketPrintingBatchRecord = Database['receiving_ticket_printing_batch'];
+export type SequencingSessionDraftRecord = Database['sequencing_session_drafts'];

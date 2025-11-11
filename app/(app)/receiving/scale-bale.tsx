@@ -8,6 +8,7 @@ import { powersync } from '@/powersync/system';
 import { BaleRecord, GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import { SuccessToast } from '@/components/SuccessToast';
 import { Picker } from '@react-native-picker/picker';
+import { useNetwork } from '@/NetworkContext';
 
 // Safe storage wrapper: same as in sequencing-scanner
 let RNAsync: any = null;
@@ -77,6 +78,7 @@ const STORAGE_KEY = 'receiving:sequencingFormState';
 const ScaleBaleScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { isConnected } = useNetwork();
   
   // Original state variables
   const [lay, setLay] = useState('1');
@@ -122,6 +124,7 @@ const ScaleBaleScreen = () => {
   const [autoProcessTimeout, setAutoProcessTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [previousGdNotesStatus, setPreviousGdNotesStatus] = useState<Map<string, 'pending' | 'in_progress' | 'completed'>>(new Map());
   // Lay options for the picker
   const layOptions = [
     { label: 'Lay 1', value: '1' },
@@ -131,6 +134,130 @@ const ScaleBaleScreen = () => {
     { label: 'Lay 5', value: '5' },
     { label: 'Lay 6', value: '6' },
   ];
+
+  // Create a local record in the actual ticket printing table (offline-first mirror)
+  const createLocalTicketPrintingBatch = useCallback(async (docNumber?: string, gdnId?: string | number | null) => {
+    try {
+      if (!docNumber && !gdnId) return;
+      const nowIso = new Date().toISOString();
+      // If we don't have GDN id, try resolve from document_number
+      let gdnIdToUse: string | number | null = gdnId ?? null;
+      if (!gdnIdToUse && docNumber) {
+        try {
+          const row = await powersync.get<any>(
+            `SELECT id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
+            [docNumber]
+          );
+          gdnIdToUse = row?.id ?? null;
+        } catch {}
+      }
+      const localId = `tpb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await powersync.execute(
+        `INSERT INTO receiving_ticket_printing_batch (id, grower_delivery_note_id, state, create_date, write_date)
+         VALUES (?, ?, ?, ?, ?)`,
+        [localId, gdnIdToUse ?? null, 'printing', nowIso, nowIso]
+      );
+    } catch {}
+  }, []);
+
+  // --- Ticket Printing using real table (offline-first) ---
+  const enqueueTicketPrinting = useCallback(async (docNumber: string) => {
+    if (!docNumber) return;
+    try {
+      // Resolve GDN id
+      const gdn = await powersync.get<any>(
+        `SELECT id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
+        [docNumber]
+      );
+      const gdnId = gdn?.id ?? null;
+      if (!gdnId) return;
+      const nowIso = new Date().toISOString();
+      // Insert if missing; otherwise keep existing
+      await powersync.execute(
+        `INSERT INTO receiving_ticket_printing_batch (id, grower_delivery_note_id, state, create_date, write_date)
+         SELECT ?, ?, 'pending', ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM receiving_ticket_printing_batch WHERE grower_delivery_note_id = ?
+         )`,
+        [`tpb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, gdnId, nowIso, nowIso, gdnId]
+      );
+    } catch {}
+  }, []);
+
+  const processTicketQueueOnce = useCallback(async () => {
+    if (!isConnected) return;
+    try {
+      // Find local pending ticket batches
+      const pending = await powersync.getAll<any>(
+        `SELECT id, grower_delivery_note_id FROM receiving_ticket_printing_batch WHERE state = 'pending'`
+      );
+      if (!Array.isArray(pending) || pending.length === 0) return;
+      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
+      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
+      if (!serverURL || !token) return;
+      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
+      for (const item of pending) {
+        const batchId = item.id;
+        try {
+          const note = await powersync.get<any>(
+            `SELECT document_number FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
+            [item.grower_delivery_note_id]
+          );
+          const doc = note?.document_number;
+          if (!doc) {
+            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+            continue;
+          }
+          // Pick any bale barcode for this document
+          const bale = await powersync.get<any>(
+            `SELECT COALESCE(scale_barcode, barcode) AS barcode FROM receiving_bale WHERE document_number = ? ORDER BY COALESCE(write_date, create_date) DESC LIMIT 1`,
+            [doc]
+          );
+          const barcode = bale?.barcode;
+          if (!barcode) {
+            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+            continue;
+          }
+          const rowToUse = row || '0';
+          const layToUse = lay || '1';
+          const spToUse = sellingPointId ? String(Number(sellingPointId)) : null;
+          const fsToUse = floorSaleId ? String(Number(floorSaleId)) : null;
+          if (!spToUse || !fsToUse) {
+            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+            continue;
+          }
+          const res = await axios.post(
+            `${normalized}/api/fo/receiving/sequencing_scan`,
+            { params: { scale_barcode: barcode, row: rowToUse, lay: layToUse, selling_point_id: spToUse, floor_sale_id: fsToUse } },
+            { headers: { 'Content-Type': 'application/json', 'X-FO-Token': token } }
+          );
+          const data = res?.data || {};
+          const ok = !!(data.result && data.result.success);
+          const deliveryCompleted = !!data.delivery_completed || !!data.result?.delivery_completed;
+          const ticketCreated = !!data.ticket_created || !!data.result?.ticket_created;
+          if (ok && (deliveryCompleted || ticketCreated)) {
+            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='printing', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+          } else {
+            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+          }
+        } catch {
+          await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
+        }
+      }
+    } catch {}
+  }, [isConnected, row, lay, sellingPointId, floorSaleId]);
+
+  // Start background sync on mount / when connectivity returns
+  useEffect(() => {
+    let timer: any;
+    (async () => {
+      if (isConnected) {
+        try { await processTicketQueueOnce(); } catch {}
+        timer = setInterval(() => { processTicketQueueOnce(); }, 30000);
+      }
+    })();
+    return () => { if (timer) clearInterval(timer); };
+  }, [isConnected, processTicketQueueOnce]);
 
   // Original actionScanBale function with enhanced error handling
   const actionScanBale = useCallback(async () => {
@@ -208,17 +335,63 @@ const ScaleBaleScreen = () => {
             }
 
             const existingRows = await powersync.getAll<any>(
-              `SELECT id FROM receiving_curverid_bale_sequencing_model
+              `SELECT id, document_number, COALESCE(barcode, scale_barcode) AS barcode,
+                      "row" as row_number, lay, scan_datetime, write_date
+                 FROM receiving_curverid_bale_sequencing_model
                 WHERE (barcode = ? OR scale_barcode = ?)
                   AND ((document_number IS NOT NULL AND document_number = ?) OR (grower_delivery_note_id IS NOT NULL AND grower_delivery_note_id = ?))
+                ORDER BY COALESCE(write_date, scan_datetime, create_date) DESC
                 LIMIT 1`,
               [scanned, scanned, docNum || '', gdnId || '']
             );
             const alreadyExists = Array.isArray(existingRows) && existingRows.length > 0;
             if (alreadyExists) {
               duplicateFound = true;
-              setResultMessage('This bale has already been scanned for this delivery.');
+              const ex = existingRows[0] || {};
+              // Prefer ISO datetime fields and render a friendly local time
+              let scannedAt: string | null = ex.scan_datetime || ex.write_date || null;
+              try {
+                if (scannedAt) scannedAt = new Date(scannedAt).toLocaleString();
+              } catch {}
+
+              // Start with what we know from prior queries
+              let docNumText: string | null = docNum || null;
+              let lotNumText: string | number | null = bale?.lot_number ?? null;
+              let groupNumText: string | number | null = bale?.group_number ?? null;
+
+              // If any core fields missing, backfill from receiving_bale table by barcode
+              if (!docNumText || !lotNumText || !groupNumText) {
+                try {
+                  const backfill = await powersync.get<any>(
+                    `SELECT document_number, lot_number, group_number
+                       FROM receiving_bale
+                      WHERE scale_barcode = ? OR barcode = ?
+                   ORDER BY COALESCE(write_date, create_date) DESC
+                      LIMIT 1`,
+                    [scanned, scanned]
+                  );
+                  if (backfill) {
+                    if (!docNumText) docNumText = backfill.document_number || docNumText;
+                    if (!lotNumText) lotNumText = backfill.lot_number ?? lotNumText;
+                    if (!groupNumText) groupNumText = backfill.group_number ?? groupNumText;
+                  }
+                } catch {}
+              }
+
+              const lotText = (lotNumText != null && `${String(lotNumText)}`.trim() !== '' ? `Lot: ${lotNumText}` : null);
+              const groupText = (groupNumText != null && `${String(groupNumText)}`.trim() !== '' ? `Group: ${groupNumText}` : null);
+              const docText = (docNumText ? `Document: ${docNumText}` : null);
+              const rowText = (ex?.row_number ? `Row: ${ex.row_number}` : null);
+              const layText = (ex?.lay ? `Lay: ${ex.lay}` : null);
+              const whenText = (scannedAt ? `Scanned at: ${scannedAt}` : null);
+              const barcodeText = (ex?.barcode ? `Barcode: ${ex.barcode}` : `Barcode: ${scanned}`);
+
+              const parts = [barcodeText, docText, lotText, groupText, rowText, layText, whenText].filter(Boolean);
+              const details = parts.length ? parts.join(' | ') : `Barcode: ${scanned}`;
+
+              setResultMessage(`This bale has already been scanned for this delivery.\n${details}`);
               setIsError(true);
+              setLastScanSuccess(false);
             } else {
               // Insert into local sequencing table for progress tracking
               const seqId = `seq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -242,6 +415,18 @@ const ScaleBaleScreen = () => {
                   nowIso
                 ]
               );
+
+              // Also post the scan to the server (online path) to persist in Odoo
+              try {
+                await saveBaleToRowTracking(parseInt(row, 10) || 0, scanned, {
+                  document_number: docNum || undefined,
+                  grower_number: bale?.grower_number,
+                  lot_number: bale?.lot_number,
+                  group_number: bale?.group_number
+                });
+              } catch (e) {
+                console.warn('⚠️ Server sequencing_scan call failed (kept local):', e);
+              }
             }
           } catch (e) {
             console.warn('⚠️ Duplicate check/insert failed', e);
@@ -262,23 +447,49 @@ const ScaleBaleScreen = () => {
                    (SELECT COALESCE(number_of_bales_delivered, number_of_bales, 0) FROM receiving_grower_delivery_note WHERE (document_number = ? OR id = ?) LIMIT 1) AS expected_count`,
               [docNum || '', gdnId || '', docNum || '', gdnId || '']
             );
-            setTotalScanned(Number(counts?.scanned_count) || 0);
-            setTotalDelivered(Number(counts?.expected_count) || 0);
+            const scannedCount = Number(counts?.scanned_count) || 0;
+            const expectedCount = Number(counts?.expected_count) || 0;
+            setTotalScanned(scannedCount);
+            setTotalDelivered(expectedCount);
 
-            // Auto-send to ticket printing when complete
-            const scannedCnt = Number(counts?.scanned_count) || 0;
-            const expectedCnt = Number(counts?.expected_count) || 0;
-            if (expectedCnt > 0 && scannedCnt >= expectedCnt) {
-              console.log('🎉 GD Note complete locally. Triggering ticket printing for', docNum);
-              try {
-                await createTicketPrintingBatch(docNum);
-                setSuccessMessage('GD Note sent to Ticket Printing');
+            // Check if this scan just completed the delivery
+            if (expectedCount > 0 && scannedCount >= expectedCount) {
+              // Check previous status to see if this is a new completion
+              const previousStatus = previousGdNotesStatus.get(docNum || '');
+              if (previousStatus !== 'completed') {
+                // Get grower info for the acknowledgement
+                const gdNote = await powersync.get<any>(
+                  `SELECT grower_name, grower_number FROM receiving_grower_delivery_note WHERE (document_number = ? OR id = ?) LIMIT 1`,
+                  [docNum || '', gdnId || '']
+                );
+                
+                console.log(`🎉 GD Note ${docNum} just completed locally!`);
+                // Enqueue ticket printing for offline sync
+                try { await enqueueTicketPrinting(docNum || ''); } catch {}
+                // Create local mirror in actual ticket table
+                try { await createLocalTicketPrintingBatch(docNum || '', gdnId); } catch {}
+                const growerInfo = gdNote?.grower_name ? ` (${gdNote.grower_name})` : '';
+                const message = `✅ GD Note ${docNum}${growerInfo} completed!\n\nAll ${expectedCount} bales have been scanned. Ticket printing will be triggered when synced.`;
+                setSuccessMessage(message);
                 setShowSuccess(true);
-                Alert.alert('✅ Success', `Delivery ${docNum} sent to Ticket Printing!`);
-              } catch (e) {
-                console.warn('⚠️ Ticket printing trigger failed (will remain manual):', e);
+                
+                // Update status map to prevent duplicate acknowledgements
+                setPreviousGdNotesStatus(prev => {
+                  const updated = new Map(prev);
+                  updated.set(docNum || '', 'completed');
+                  return updated;
+                });
+                
+                // Show alert for immediate feedback
+                Alert.alert(
+                  'Delivery Completed! 🎉',
+                  `GD Note ${docNum}${growerInfo} has been completed.\n\nAll ${expectedCount} bales scanned. Ticket printing will be triggered when synced to server.`,
+                  [{ text: 'OK' }]
+                );
               }
             }
+
+            // Ticket printing is triggered server-side by sequencing_scan when delivery completes
           }
         } else {
           // Fallback: clear last scan info but keep progress unchanged
@@ -371,72 +582,8 @@ const ScaleBaleScreen = () => {
     }
   };
 
-  const createTicketPrintingBatch = async (documentNumber?: string) => {
-    try {
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      
-      // Use provided document number or fall back to currentGdInfo
-      const gdDocumentNumber = documentNumber || currentGdInfo?.document_number;
-      
-      if (!serverURL || !token || !gdDocumentNumber) {
-        throw new Error('Missing server configuration or GD Note document number');
-      }
-      
-      console.log('🔍 Creating ticket printing batch for GD Note:', gdDocumentNumber);
-      
-      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
-      const res = await axios.request({
-        method: 'POST',
-        url: `${normalized}/api/fo/receiving/ticket_printing_batch`,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-FO-Token': token
-        },
-        data: {
-          params: {
-            document_number: gdDocumentNumber
-          }
-        }
-      });
-      
-      console.log('🔍 Ticket printing API response:', res.data);
-      
-      const result = res?.data?.result || res?.data;
-      const ok = result?.success ?? false;
-      if (!ok) {
-        throw new Error(result?.message || 'Server did not confirm success');
-      }
-      
-      // Return success details for better user feedback
-      return {
-        success: true,
-        batchId: result.batch_id || 'N/A',
-        message: result.message || 'Ticket printing batch created successfully'
-      };
-    } catch (e: any) {
-      console.error('Ticket printing batch create failed', e);
-      return { success: false, error: e?.message || 'Unknown error' };
-    }
-  };
-
-  const scanIntoRow = async (rowNumber: number, barcode?: string) => {
-    try {
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      if (!serverURL || !token || !rowNumber) return;
-      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
-      await axios.post(
-        `${normalized}/api/fo/receiving/rows/scan`,
-        { params: { row_number: Number(rowNumber), barcode, lay } },
-        { headers: { 'Content-Type': 'application/json', 'X-FO-TOKEN': token } }
-      );
-    } catch (e) {
-      // Silent fail; row screen will refresh from PowerSync
-      console.warn('scanIntoRow failed', e);
-    }
-  };
-
+  
+  
   const saveBaleToRowTracking = async (rowNumber: number, barcode: string, gdInfo: any) => {
     try {
       console.log('🔍 saveBaleToRowTracking called with:', { rowNumber, barcode, gdInfo });
@@ -499,6 +646,19 @@ const ScaleBaleScreen = () => {
         
         if (result.delivery_completed) {
           console.log('🎉 Delivery completed!', result.message);
+          
+          // Show acknowledgement for delivery completion and ticket printing
+          const docNumber = result.bale_info?.document_number || result.result?.document_number || 'Unknown';
+          const message = `✅ GD Note ${docNumber} completed!\n\nAll bales have been scanned. Ticket printing has been triggered automatically.`;
+          setSuccessMessage(message);
+          setShowSuccess(true);
+          
+          // Also show alert for immediate feedback
+          Alert.alert(
+            'Delivery Completed! 🎉',
+            `GD Note ${docNumber} has been completed. All bales scanned and sent to ticket printing.`,
+            [{ text: 'OK' }]
+          );
         }
         
         // Refresh PowerSync data to show updated row management
@@ -607,31 +767,7 @@ const ScaleBaleScreen = () => {
     return gdBales.length >= expected;
   };
 
-  // Manual trigger for ticket printing (for completed GD Notes)
-  const handleManualTicketPrinting = async (documentNumber: string) => {
-    try {
-      setIsProcessing(true);
-      const result = await createTicketPrintingBatch(documentNumber);
-      
-    if (result.success) {
-        setResultMessage(`✅ GD Note ${documentNumber} sent to Ticket Printing! (Batch ID: ${result.batchId})`);
-        setSuccessMessage(`Ticket printing batch created! Batch ID: ${result.batchId}`);
-        setShowSuccess(true);
-      Alert.alert('✅ Success', `Delivery ${documentNumber} sent to Ticket Printing!`);
-        
-        // Remove this GD Note from pending list since it's now processed
-        setAllPendingGdNotes(prev => prev.filter(note => note.document_number !== documentNumber));
-      } else {
-        setResultMessage(`❌ Failed to create ticket printing batch: ${result.error}`);
-        setIsError(true);
-      }
-    } catch (error: any) {
-      setResultMessage(`❌ Error creating ticket printing batch: ${error.message}`);
-      setIsError(true);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  // Manual ticket printing removed; sequencing_scan handles printing automatically
 
   // Fetch pending GD Notes scanned on this device (local sequencing), not global pending
   const fetchAllPendingGdNotes = async () => {
@@ -701,6 +837,46 @@ const ScaleBaleScreen = () => {
 
       // 3) Only show notes that were scanned on this device but not finished
       const filtered = processed.filter(n => n.scanned_bales > 0 && n.scanned_bales < n.number_of_bales_delivered);
+
+      // 4) Detect newly completed GD Notes and show acknowledgement
+      const previousStatus = previousGdNotesStatus;
+      const currentStatus = new Map<string, 'pending' | 'in_progress' | 'completed'>();
+      
+      // Build current status map from all processed notes (including completed ones)
+      processed.forEach(note => {
+        currentStatus.set(note.document_number, note.status);
+      });
+      
+      // Check for transitions from in_progress/pending to completed
+      for (const [docNumber, currentStatusValue] of currentStatus.entries()) {
+        if (currentStatusValue === 'completed') {
+          const previousStatusValue = previousStatus.get(docNumber);
+          // If it was previously in_progress or pending, and now completed, show acknowledgement
+          if (previousStatusValue && previousStatusValue !== 'completed') {
+            const note = processed.find(n => n.document_number === docNumber);
+            if (note) {
+              console.log(`🎉 GD Note ${docNumber} just completed!`);
+              // Enqueue ticket printing for offline sync (device-local completed list)
+              try { await enqueueTicketPrinting(docNumber); } catch {}
+              // Create local mirror in actual ticket table
+              try { await createLocalTicketPrintingBatch(docNumber, null); } catch {}
+              const message = `✅ GD Note ${docNumber} completed!\n\nAll ${note.number_of_bales_delivered} bales have been scanned. Ticket printing has been triggered automatically.`;
+              setSuccessMessage(message);
+              setShowSuccess(true);
+              
+              // Show alert for immediate feedback
+              Alert.alert(
+                'Delivery Completed! 🎉',
+                `GD Note ${docNumber} (${note.grower_name}) has been completed.\n\nAll ${note.number_of_bales_delivered} bales scanned and sent to ticket printing.`,
+                [{ text: 'OK' }]
+              );
+            }
+          }
+        }
+      }
+      
+      // Update previous status for next comparison
+      setPreviousGdNotesStatus(currentStatus);
 
       console.log('🔍 Device-local pending GD Notes:', filtered.length);
       setAllPendingGdNotes(filtered);
@@ -1082,14 +1258,10 @@ const ScaleBaleScreen = () => {
                 {/* Status-specific actions */}
                 <View className="mt-3">
                   {note.status === 'completed' && (
-                    <View className="flex-row space-x-2">
-                      <TouchableOpacity
-                        onPress={() => handleManualTicketPrinting(note.document_number)}
-                        disabled={isProcessing}
-                        className="bg-green-600 px-4 py-2 rounded-lg flex-1"
-                      >
-                        <Text className="text-white font-semibold text-sm text-center">OK</Text>
-                      </TouchableOpacity>
+                    <View className="bg-green-50 p-2 rounded border border-green-200">
+                      <Text className="text-green-700 text-sm font-medium">
+                        ✅ Delivery completed. Ticket printing is triggered automatically.
+                      </Text>
                     </View>
                   )}
                   

@@ -7,7 +7,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { BarChart, House, Leaf, Settings, Users } from 'lucide-react-native';
+import { BarChart, House, Leaf, Settings, Users, ClipboardList } from 'lucide-react-native';
 import { setupPowerSync } from '@/powersync/system';
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -45,6 +45,14 @@ export default function TabLayout() {
           title: 'Receiving',
           headerShown: false,
           tabBarIcon: ({ color }) => <Users size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="datacapturing"
+        options={{
+          title: 'Data Capture',
+          headerShown: false,
+          tabBarIcon: ({ color }) => <ClipboardList size={24} color={color} />,
         }}
       />
       <Tabs.Screen

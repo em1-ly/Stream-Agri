@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { powersync } from '@/powersync/system';
 import * as SecureStore from 'expo-secure-store';
@@ -161,14 +161,22 @@ export default function ValidateTDLineScreen() {
   };
 
   return (
-    <View className="flex-1 bg-white">
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      className="flex-1 bg-white"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <Stack.Screen options={{ title: 'Validate TD Line', headerTitleStyle: { fontSize: 20, fontWeight: 'bold', color: '#65435C' } }} />
       {loading ? (
         <View className="flex-1 items-center justify-center"><ActivityIndicator /></View>
       ) : !line ? (
         <View className="flex-1 items-center justify-center p-6"><Text>Line not found.</Text></View>
       ) : (
-        <ScrollView className="flex-1 p-4">
+        <ScrollView 
+          className="flex-1 p-4"
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
           <View className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-4">
             <Text className="text-lg font-bold text-[#65435C] mb-2">{line.grower_number || line.grower_number}</Text>
             <Text className="text-gray-700">{line.grower_name || line.grower_number}</Text>
@@ -193,22 +201,22 @@ export default function ValidateTDLineScreen() {
               onChangeText={setNotes}
               placeholder="Optional notes"
               editable={!isValidated}
+              multiline
             />
           </View>
 
           <TouchableOpacity
-            className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center`}
+            className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
             onPress={handleValidate}
             disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked'}
           >
             <Text className="text-white font-bold">
               {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
             </Text>
-
           </TouchableOpacity>
         </ScrollView>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

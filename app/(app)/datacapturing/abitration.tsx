@@ -4,22 +4,18 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Scan } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
 import { updateBaleDataAPI } from '@/api/odoo_api';
-import * as SecureStore from 'expo-secure-store';
 
 interface BaleData {
   id: string;
   barcode: string;
   mass: number;
   grower_number: string;
-  // Fields from the screenshot
   sale_date?: string;
   number_of_bales_delivered?: number;
   group_number?: number;
   lot_number?: string;
   current_seq?: number;
-  // Hessian (optional if available in local schema) 
   hessian_name?: string;
-  // Editable fields
   timb_grade_name?: string;
   buyer_code?: string;
   buyer_grade_grade?: string;
@@ -27,18 +23,18 @@ interface BaleData {
   salecode_name?: string;
 }
 
-interface AllDetailsFormState {
-    timbGrade: string;
-    buyer: string;
-    buyerGrade: string;
-    price: string;
-    saleCode: string;
-    hessian: string;
-    lotNumber: string;
-    groupNumber: string;
+interface AbitrationFormState {
+  timbGrade: string;
+  buyer: string;
+  buyerGrade: string;
+  price: string;
+  saleCode: string;
+  hessian: string;
+  lotNumber: string;
+  groupNumber: string;
 }
 
-const AllDetailsScreen = () => {
+const AbitrationScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [barcode, setBarcode] = useState('');
@@ -46,9 +42,8 @@ const AllDetailsScreen = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isReleasing, setIsReleasing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [formState, setFormState] = useState<AllDetailsFormState>({
+  const [formState, setFormState] = useState<AbitrationFormState>({
     timbGrade: '',
     buyer: '',
     buyerGrade: '',
@@ -162,7 +157,7 @@ const AllDetailsScreen = () => {
       const response = await updateBaleDataAPI(baleData.barcode, updates);
 
       if (response.data.result && response.data.result.success) {
-        setSuccessMessage(response.data.result.message || 'All details saved successfully!');
+        setSuccessMessage(response.data.result.message || 'Abitration details saved successfully!');
         
         setTimeout(() => {
             fetchBaleData(baleData.barcode);
@@ -181,129 +176,21 @@ const AllDetailsScreen = () => {
       setIsSaving(false);
     }
   };
-
-  const handleSaveAndRelease = async () => {
-    if (!baleData) {
-      Alert.alert('Error', 'No bale loaded to release.');
-      return;
-    }
-    setIsReleasing(true);
-    setError(null);
-    try {
-      const updates = {
-        timb_grade: formState.timbGrade,
-        buyer: formState.buyer,
-        buyer_grade: formState.buyerGrade,
-        price: formState.price,
-        salecode_id: formState.saleCode,
-        hessian: formState.hessian,
-        lot_number: formState.lotNumber,
-        group_number: formState.groupNumber
-      };
-
-      // OFFLINE-FIRST: apply updates locally
-      try {
-        await powersync.execute(
-          `UPDATE receiving_bale
-             SET timb_grade = COALESCE(?, timb_grade),
-                 buyer = COALESCE(?, buyer),
-                 buyer_grade = COALESCE(?, buyer_grade),
-                 price = COALESCE(?, price),
-                 salecode_id = COALESCE(?, salecode_id),
-                 hessian = COALESCE(?, hessian),
-                 lot_number = COALESCE(?, lot_number),
-                 group_number = COALESCE(?, group_number)
-           WHERE barcode = ? OR scale_barcode = ?`,
-          [
-            updates.timb_grade || null,
-            updates.buyer || null,
-            updates.buyer_grade || null,
-            updates.price || null,
-            updates.salecode_id || null,
-            updates.hessian || null,
-            updates.lot_number || null,
-            updates.group_number || null,
-            baleData.barcode,
-            baleData.barcode
-          ]
-        );
-      } catch (_e) {
-        // ignore local update failure here; we will still attempt to queue
-      }
-
-      // Queue release locally for later sync (create table if not exists)
-      try {
-        await powersync.execute(
-          `CREATE TABLE IF NOT EXISTS mobile_bale_release_queue (
-             id TEXT PRIMARY KEY,
-             barcode TEXT,
-             updates TEXT,
-             created_at TEXT
-           )`
-        );
-        const queueId = `rel_${Date.now()}`;
-        await powersync.execute(
-          `INSERT INTO mobile_bale_release_queue (id, barcode, updates, created_at)
-           VALUES (?, ?, ?, datetime('now'))`,
-          [queueId, baleData.barcode, JSON.stringify(updates)]
-        );
-      } catch (_e) {
-        // if queue table cannot be created/inserted, still proceed
-      }
-
-      // Try online combined endpoint if available; fallback stays local-only
-      try {
-        const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-        const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-        const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
-        if (serverURL && token) {
-          const resp = await fetch(`${base(serverURL)}/api/fo/bale/save_and_release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-FO-Token': token || '' },
-            body: JSON.stringify({ params: { barcode: baleData.barcode, updates } })
-          });
-          if (resp.ok) {
-            const payload = await resp.json();
-            const data = payload.result || payload;
-            if (data?.success) {
-              Alert.alert('Success', data.message || 'Bale saved and released');
-              await fetchBaleData(baleData.barcode);
-              if (data.salemaster && data.salemaster.is_released) {
-                Alert.alert('Sale Released', 'All bales released. You can approve the sale.');
-              }
-              setIsReleasing(false);
-              return;
-            }
-          }
-        }
-      } catch (_e) {
-        // stay offline-only
-      }
-
-      // Offline success path
-      Alert.alert('Success', 'Bale saved and release queued (offline).');
-      await fetchBaleData(baleData.barcode);
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to save and release');
-    } finally {
-      setIsReleasing(false);
-    }
-  };
-
+  
   const openScanner = () => {
     router.push({
       pathname: '/(app)/datacapturing/barcode-scanner',
-      params: { returnTo: '/(app)/datacapturing/all-details' }
+      params: { returnTo: '/(app)/datacapturing/abitration' }
     });
   };
 
-  const handleFormChange = (name: keyof AllDetailsFormState, value: string) => {
+  const handleFormChange = (name: keyof AbitrationFormState, value: string) => {
     setFormState(prevState => ({ ...prevState, [name]: value }));
   };
 
   return (
     <ScrollView className="flex-1 p-4 bg-gray-100" contentContainerStyle={{ paddingBottom: 20 }}>
-      <Text className="text-xl font-bold text-center mb-4 text-[#65435C]">All Details</Text>
+      <Text className="text-xl font-bold text-center mb-4 text-[#65435C]">Arbitration</Text>
       
       <View className="bg-white p-4 rounded-lg shadow-md mb-4">
         <Text className="text-lg font-semibold mb-2 text-gray-700">Barcode</Text>
@@ -371,7 +258,7 @@ const AllDetailsScreen = () => {
             </View>
 
             <View className="bg-white p-4 rounded-lg shadow-md">
-                <Text className="text-lg font-semibold mb-2 text-gray-700">Enter All Details</Text>
+                <Text className="text-lg font-semibold mb-2 text-gray-700">Enter Abitration Details</Text>
 
                 <Text className="font-semibold text-gray-600 mb-1">TIMB Grade / Reason</Text>
                 <TextInput className="border border-gray-300 rounded-md p-2 mb-3" placeholder="e.g., L1F" value={formState.timbGrade} onChangeText={(val) => handleFormChange('timbGrade', val)} autoCapitalize="characters" />
@@ -397,15 +284,15 @@ const AllDetailsScreen = () => {
                 <Text className="font-semibold text-gray-600 mb-1">Group Number</Text>
                 <TextInput className="border border-gray-300 rounded-md p-2 mb-4" placeholder="Group Number" value={formState.groupNumber} onChangeText={(val) => handleFormChange('groupNumber', val)} keyboardType="numeric" />
                 
-                <TouchableOpacity onPress={handleSaveAndRelease} className={`p-3 rounded-md ${isReleasing ? 'bg-gray-400' : 'bg-green-600'}`} disabled={isReleasing}>
-                  {isReleasing ? (
-                    <View className="flex-row items-center justify-center">
-                      <ActivityIndicator color="white" size="small" className="mr-2" />
-                      <Text className="text-white text-center font-bold">Releasing...</Text>
-                    </View>
-                  ) : (
-                    <Text className="text-white text-center font-bold">Release Bale</Text>
-                  )}
+                <TouchableOpacity onPress={handleSave} className={`p-3 rounded-md ${isSaving ? 'bg-gray-400' : 'bg-[#65435C]'}`} disabled={isSaving}>
+                    {isSaving ? (
+                        <View className="flex-row items-center justify-center">
+                            <ActivityIndicator color="white" size="small" className="mr-2" />
+                            <Text className="text-white text-center font-bold">Saving...</Text>
+                        </View>
+                    ) : (
+                        <Text className="text-white text-center font-bold">Save Details</Text>
+                    )}
                 </TouchableOpacity>
             </View>
         </View>
@@ -414,4 +301,4 @@ const AllDetailsScreen = () => {
   );
 };
 
-export default AllDetailsScreen;
+export default AbitrationScreen;

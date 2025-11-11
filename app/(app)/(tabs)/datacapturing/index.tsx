@@ -1,8 +1,7 @@
 import { View, Text, TouchableOpacity, FlatList } from 'react-native';
 import React, { useState, useEffect } from 'react';
-import { Stack, Link } from 'expo-router';
+import { Link } from 'expo-router';
 import { ChevronRight, Building } from 'lucide-react-native';
-import { useSession } from '@/authContext';
 import { powersync } from '@/powersync/system';
 import { ResCompanyRecord } from '@/powersync/Schema';
 
@@ -53,13 +52,11 @@ const MenuComponent = () => {
 
 export default function DataCapturingScreen() {
   return (
-    <>
-      <Stack.Screen options={{ title: 'Data Capturing' }} />
-      <View className="flex-1 p-4 bg-[#65435C]">
-        <View className="flex-1 bg-white rounded-2xl p-4">
-          <MenuComponent />
-        </View>
+    <View className="flex-1 p-4 bg-[#65435C]">
+      <View className="flex-1 bg-white rounded-2xl p-4">
+        <MenuComponent />
       </View>
-    </>
+    </View>
   );
 }
+

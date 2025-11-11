@@ -99,11 +99,8 @@ export default function BarcodeScanner({
     
     setIsScanning(true);
     
-    // Normalize UPC-A on iOS: iOS may report UPC-A as EAN-13 with a leading 0
+    // Do not modify or trim the scanned value; preserve exactly as read by camera
     let normalized = value;
-    if (Platform.OS === 'ios' && type === 'ean-13' && value.length === 13 && value.startsWith('0')) {
-      normalized = value.substring(1);
-    }
 
     // If QR code, accept as-is and skip Code 39 validation
     const isQr = type === 'qr' || type === 'org.iso.qr';

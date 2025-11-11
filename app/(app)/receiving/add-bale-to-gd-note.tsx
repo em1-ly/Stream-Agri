@@ -81,7 +81,7 @@ export default function AddBaleToGDNoteScreen() {
       errors.push('Please enter a valid document number');
     }
     // 2) Bale barcode validation
-    if (!scaleBarcode.trim() || !validateCheckDigit(scaleBarcode.trim())) {
+    if (!scaleBarcode || !validateCheckDigit(scaleBarcode)) {
       errors.push('Please enter a valid 10-character bale barcode');
     }
     // 3) Lot number
@@ -98,29 +98,12 @@ export default function AddBaleToGDNoteScreen() {
     if (!hessian.trim()) {
       errors.push('Please select a Hessian');
     }
-    // 6) Duplicate lot in this note
-    if (growerNote && lotNumber.trim()) {
-      try {
-        const dupRows = await powersync.getAll<{ cnt: number }>(
-          'SELECT COUNT(*) AS cnt FROM receiving_bale WHERE (grower_delivery_note_id = ? OR document_number = ?) AND lot_number = ?',
-          [growerNote.id, growerNote.document_number, lotNumber.trim()]
-        );
-        const dup = dupRows && dupRows[0];
-        if ((dup?.cnt || 0) > 0) {
-          errors.push(`Lot ${lotNumber.trim()} is already in this delivery note`);
-        }
-      } catch (e) {
-        errors.push('Could not verify duplicate lot in this note (local DB error).');
-      }
-    }
-    // 7) Barcode length (already covered by check digit validation)
-    
     // 8) Existing bale associations
-    if (scaleBarcode.trim()) {
+    if (scaleBarcode) {
       try {
         const existingRows = await powersync.getAll<any>(
           'SELECT id, grower_delivery_note_id, document_number FROM receiving_bale WHERE scale_barcode = ? LIMIT 1',
-          [scaleBarcode.trim()]
+          [scaleBarcode]
         );
         const existing = existingRows && existingRows[0];
         if (existing && existing.grower_delivery_note_id) {
@@ -295,13 +278,13 @@ export default function AddBaleToGDNoteScreen() {
   );
 
   const handleSearchWithBarcode = async (barcode: string) => {
-    if (!barcode.trim()) {
+    if (!barcode) {
       return;
     }
     try {
       const result = await powersync.get<GrowerDeliveryNoteRecord>(
         'SELECT * FROM receiving_grower_delivery_note WHERE document_number = ?',
-        [barcode.trim()]
+        [barcode]
       );
       if (result) {
         setGrowerNote(result);

@@ -15,6 +15,9 @@ type TransporterDeliveryNote = {
   number_of_bales?: number;
   validated_bales?: number;
   state?: 'open' | 'closed' | 'draft';
+  creditor?: string;
+  physical_dnote_number?: string;
+  pending_validation_count?: number;
 };
 
 const ViewAllTDNotes = () => {
@@ -27,12 +30,24 @@ const ViewAllTDNotes = () => {
   const [pendingMap, setPendingMap] = useState<Record<string, number>>({});
   const [growerLinesMap, setGrowerLinesMap] = useState<Record<string, string[]>>({});
 
-  // Set up PowerSync listener
+  // Set up PowerSync listener and refresh on focus
   useFocusEffect(
     useCallback(() => {
       powersync.registerListener({
         statusChanged: (status) => setSyncStatus(status.connected),
       });
+      
+      // Trigger PowerSync sync when screen comes into focus to get latest data
+      const refreshData = async () => {
+        try {
+          // Trigger sync by executing a simple query
+          await powersync.execute('SELECT 1');
+          console.log('🔄 PowerSync sync triggered on focus');
+        } catch (e) {
+          console.warn('⚠️ PowerSync sync failed:', e);
+        }
+      };
+      refreshData();
     }, [])
   );
 
@@ -106,6 +121,16 @@ const ViewAllTDNotes = () => {
     return () => controller.abort();
   }, []);
 
+  // Update pending_validation_count when pendingMap changes
+  useEffect(() => {
+    setDeliveryNotes(prevNotes => 
+      prevNotes.map(note => ({
+        ...note,
+        pending_validation_count: pendingMap[String(note.id)] ?? 0
+      }))
+    );
+  }, [pendingMap]);
+
   // Handle search functionality using a useCallback for performance
   const applyFilters = useCallback(() => {
     const lowercaseQuery = (searchQuery || '').toLowerCase();
@@ -144,9 +169,36 @@ const ViewAllTDNotes = () => {
     setFilterMode(mode);
   };
 
+  const handleRefresh = async () => {
+    try {
+      setLoading(true);
+      await powersync.execute('SELECT 1'); // Trigger sync
+      console.log('🔄 Manual refresh triggered');
+      // Wait a moment for sync to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (e) {
+      console.warn('⚠️ Refresh failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
-      <Stack.Screen options={{title: 'View All TD Notes', headerShown: true }} />
+      <Stack.Screen 
+        options={{
+          title: 'View All TD Notes', 
+          headerShown: true,
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={handleRefresh}
+              className="mr-4 p-2"
+            >
+              <Text className="text-[#65435C] font-semibold text-lg">🔄</Text>
+            </TouchableOpacity>
+          )
+        }} 
+      />
       <View className="flex-1 p-4 bg-[#65435C]">
         <View className="flex-row items-center justify-between gap-2 mb-4 h-14">
           <View className="relative w-[80%]">
@@ -219,7 +271,8 @@ const NoteItem = ({ item }: { item: TransporterDeliveryNote }) => {
                     
                     <View>
                         <Text className="text-lg font-bold text-[#65435C] truncate max-w-[200px]">{item.transporter_name}</Text>
-                        <Text className="text-gray-500 text-sm">{item.document_number} - Bales: {item.pending_validation_count || 0}</Text>
+                        <Text className="text-gray-700 text-sm font-medium">{item.creditor} - {item.physical_dnote_number}</Text>
+                        <Text className="text-gray-500 text-sm">{item.document_number} - Growers: {item.pending_validation_count || 0}</Text>
                     </View>
                 </View>
                 

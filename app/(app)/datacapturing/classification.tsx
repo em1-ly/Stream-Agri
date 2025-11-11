@@ -1,7 +1,7 @@
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, Keyboard, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, Keyboard, ScrollView, Alert, Modal, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Scan } from 'lucide-react-native';
+import { Scan, ChevronDown } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
 import { updateBaleDataAPI } from '@/api/odoo_api';
 
@@ -13,6 +13,146 @@ interface BaleData {
   grower_number: string;
 }
 
+// Combobox component with popup modal
+const Combobox = ({ 
+  value, 
+  onChangeText, 
+  placeholder, 
+  options, 
+  displayField,
+  onSelect 
+}: { 
+  value: string; 
+  onChangeText: (text: string) => void; 
+  placeholder: string; 
+  options: any[];
+  displayField: string;
+  onSelect: (item: any) => void;
+}) => {
+  const [showModal, setShowModal] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [filteredOptions, setFilteredOptions] = useState(options);
+
+  useEffect(() => {
+    if (searchText) {
+      const filtered = options.filter(opt => 
+        String(opt[displayField] || '').toLowerCase().includes(searchText.toLowerCase())
+      );
+      setFilteredOptions(filtered);
+    } else {
+      setFilteredOptions(options);
+    }
+  }, [searchText, options, displayField]);
+
+  const handleOpenModal = () => {
+    Keyboard.dismiss(); // Dismiss keyboard when opening modal
+    setSearchText('');
+    setShowModal(true);
+  };
+
+  const handleSelect = (item: any) => {
+    onSelect(item);
+    setShowModal(false);
+    setSearchText('');
+  };
+
+  return (
+    <View>
+      <View className="border border-gray-300 rounded-md p-2 flex-row items-center">
+        <TextInput
+          className="flex-1"
+          placeholder={placeholder}
+          value={value}
+          onChangeText={onChangeText}
+          autoCapitalize="characters"
+        />
+        <TouchableOpacity onPress={handleOpenModal} className="ml-2">
+          <ChevronDown size={20} color="#666" />
+        </TouchableOpacity>
+      </View>
+      
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          Keyboard.dismiss();
+          setShowModal(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
+          <TouchableOpacity
+            className="flex-1 bg-black/50 justify-end"
+            activeOpacity={1}
+            onPress={() => {
+              Keyboard.dismiss();
+              setShowModal(false);
+            }}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-3xl max-h-[80%]"
+            >
+              <View className="p-4 border-b border-gray-200">
+                <View className="flex-row items-center justify-between mb-3">
+                  <Text className="text-lg font-semibold text-gray-800">{placeholder}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setShowModal(false);
+                    }}
+                  >
+                    <Text className="text-[#65435C] font-semibold">Close</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  className="border border-gray-300 rounded-md p-2"
+                  placeholder={`Search ${placeholder.toLowerCase()}...`}
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  autoCapitalize="characters"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                />
+              </View>
+              <FlatList
+                data={filteredOptions}
+                keyExtractor={(item, index) => String(item.id || index)}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    className="p-4 border-b border-gray-100"
+                    activeOpacity={0.7}
+                    onPressIn={() => {
+                      Keyboard.dismiss();
+                    }}
+                    onPress={() => {
+                      handleSelect(item);
+                    }}
+                  >
+                    <Text className="text-gray-800 text-base">{item[displayField]}</Text>
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View className="p-4">
+                    <Text className="text-gray-500 text-center">No results found</Text>
+                  </View>
+                }
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="interactive"
+                removeClippedSubviews={false}
+              />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+  );
+};
+
 const ClassificationScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -23,6 +163,22 @@ const ClassificationScreen = () => {
   const [timbGrade, setTimbGrade] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [timbGrades, setTimbGrades] = useState<any[]>([]);
+
+  // Load TIMB grades from PowerSync
+  useEffect(() => {
+    const loadTimbGrades = async () => {
+      try {
+        const gradesResult = await powersync.getAll<any>(
+          'SELECT id, name FROM floor_maintenance_timb_grade ORDER BY name'
+        );
+        setTimbGrades(gradesResult || []);
+      } catch (e) {
+        console.error('Failed to load TIMB grades:', e);
+      }
+    };
+    loadTimbGrades();
+  }, []);
 
   useEffect(() => {
     const scannedBarcode = params.scannedBarcode as string;
@@ -86,6 +242,7 @@ const ClassificationScreen = () => {
         setError("Please enter a TIMB grade.");
         return;
     }
+    Keyboard.dismiss(); // Dismiss keyboard before saving
     setIsSaving(true);
     setError(null);
     setSuccessMessage(null);
@@ -97,10 +254,9 @@ const ClassificationScreen = () => {
       if (response.data.result && response.data.result.success) {
         setSuccessMessage(response.data.result.message || 'TIMB Grade saved successfully!');
         
-        // We can optionally trigger a refresh from local DB to show updated data after sync
+        // Clear barcode and reset state after successful save
         setTimeout(() => {
-            fetchBaleData(baleData.barcode); // Re-fetch to show the new data
-            setTimbGrade('');
+            resetState(); // Clear barcode and all state
             setSuccessMessage(null);
         }, 1500);
 
@@ -124,9 +280,12 @@ const ClassificationScreen = () => {
   };
 
   return (
-    <ScrollView className="flex-1 p-4 bg-gray-100" contentContainerStyle={{ paddingBottom: 20 }}>
-      <Text className="text-xl font-bold text-center mb-4 text-[#65435C]">Classification</Text>
-      
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      className="flex-1"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView className="flex-1 p-4 bg-gray-100" contentContainerStyle={{ paddingBottom: 20 }}>
       <View className="bg-white p-4 rounded-lg shadow-md mb-4">
         <Text className="text-lg font-semibold mb-2 text-gray-700">Barcode</Text>
         <View className="flex-row items-center">
@@ -171,13 +330,15 @@ const ClassificationScreen = () => {
 
             <View className="bg-white p-4 rounded-lg shadow-md">
                 <Text className="text-lg font-semibold mb-2 text-gray-700">Enter TIMB Grade / Reason</Text>
-                <TextInput
-                    className="border border-gray-300 rounded-md p-2 mb-4"
-                    placeholder="e.g., L1F"
-                    value={timbGrade}
-                    onChangeText={setTimbGrade}
-                    autoCapitalize="characters"
+                <Combobox
+                  value={timbGrade}
+                  onChangeText={setTimbGrade}
+                  placeholder="TIMB Grade (e.g., L1F)"
+                  options={timbGrades}
+                  displayField="name"
+                  onSelect={(item) => setTimbGrade(item.name)}
                 />
+                <View className="mb-4" />
                 <TouchableOpacity 
                     onPress={handleSave} 
                     className={`p-3 rounded-md ${isSaving ? 'bg-gray-400' : 'bg-[#65435C]'}`}
@@ -189,7 +350,8 @@ const ClassificationScreen = () => {
         </View>
       )}
       
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 

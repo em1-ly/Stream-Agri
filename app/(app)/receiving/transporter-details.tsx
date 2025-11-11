@@ -117,7 +117,7 @@ export default function TransporterDetailsScreen() {
         <ScrollView className="flex-1 p-4">
           {/* Top banner with document and state */}
           <View className="bg-[#65435C] rounded-xl p-4 mb-4">
-            <Text className="text-white text-2xl font-extrabold">{note.document_number || 'Transporter D/Note'}</Text>
+            <Text className="text-white text-2xl font-extrabold">{note.physical_dnote_number || 'Transporter D/Note'}</Text>
             <View className="mt-8">
               <Text className="text-white/90 bg-white/20 self-start px-3 py-1 rounded-full text-xs font-semibold uppercase">{note.state || 'open'}</Text>
             </View>
@@ -182,7 +182,7 @@ export default function TransporterDetailsScreen() {
               return displayed.map((ln) => (
                 <View key={ln.id} className="border-b border-gray-200 py-2">
                   <Text className="text-[#65435C] font-semibold">{ln.grower_number || ln.grower_number || 'Grower'}</Text>
-                  <Text className="text-gray-700 text-sm">Bales: {ln.number_of_bales ?? ''}</Text>
+                  <Text className="text-gray-700 text-sm">Growers: {ln.number_of_bales ?? ''}</Text>
                   <View className="flex-row gap-2 mt-1 items-center">
                     <Text className="text-gray-500 text-xs">State: {ln.state || ''}</Text>
                     {(ln.physical_validation_status || '').length > 0 && (

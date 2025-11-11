@@ -143,7 +143,7 @@ export default function AddNewBaleScreen() {
   const validateBaleEntry = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
     const errors: string[] = [];
     
-    if (!scaleBarcode.trim() || !validateCheckDigit(scaleBarcode)) {
+    if (!scaleBarcode || !validateCheckDigit(scaleBarcode)) {
       errors.push('Please enter a valid 10-character bale barcode');
     }
     if (!lotNumber.trim()) {
@@ -415,6 +415,16 @@ export default function AddNewBaleScreen() {
             <Camera color="white" size={20} />
           </TouchableOpacity>
         </View>
+         {/* Group Number Input */}
+         <TextInput
+          className="border border-gray-300 rounded-lg px-4 py-3 text-base mb-6"
+          placeholder="Group Number"
+          value={groupNumber}
+          onChangeText={setGroupNumber}
+          keyboardType="numeric"
+          editable={scannedCount < expectedCount}
+        />
+
 
         {/* Lot Number Input */}
         <TextInput
@@ -426,16 +436,7 @@ export default function AddNewBaleScreen() {
           editable={scannedCount < expectedCount}
         />
 
-        {/* Group Number Input */}
-        <TextInput
-          className="border border-gray-300 rounded-lg px-4 py-3 text-base mb-6"
-          placeholder="Group Number"
-          value={groupNumber}
-          onChangeText={setGroupNumber}
-          keyboardType="numeric"
-          editable={scannedCount < expectedCount}
-        />
-
+       
         {/* Action Buttons - Side by Side */}
         <View className="flex-row gap-3 mt-4">
           <TouchableOpacity 

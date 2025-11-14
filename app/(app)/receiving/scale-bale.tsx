@@ -135,129 +135,6 @@ const ScaleBaleScreen = () => {
     { label: 'Lay 6', value: '6' },
   ];
 
-  // Create a local record in the actual ticket printing table (offline-first mirror)
-  const createLocalTicketPrintingBatch = useCallback(async (docNumber?: string, gdnId?: string | number | null) => {
-    try {
-      if (!docNumber && !gdnId) return;
-      const nowIso = new Date().toISOString();
-      // If we don't have GDN id, try resolve from document_number
-      let gdnIdToUse: string | number | null = gdnId ?? null;
-      if (!gdnIdToUse && docNumber) {
-        try {
-          const row = await powersync.get<any>(
-            `SELECT id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
-            [docNumber]
-          );
-          gdnIdToUse = row?.id ?? null;
-        } catch {}
-      }
-      const localId = `tpb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await powersync.execute(
-        `INSERT INTO receiving_ticket_printing_batch (id, grower_delivery_note_id, state, create_date, write_date)
-         VALUES (?, ?, ?, ?, ?)`,
-        [localId, gdnIdToUse ?? null, 'printing', nowIso, nowIso]
-      );
-    } catch {}
-  }, []);
-
-  // --- Ticket Printing using real table (offline-first) ---
-  const enqueueTicketPrinting = useCallback(async (docNumber: string) => {
-    if (!docNumber) return;
-    try {
-      // Resolve GDN id
-      const gdn = await powersync.get<any>(
-        `SELECT id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
-        [docNumber]
-      );
-      const gdnId = gdn?.id ?? null;
-      if (!gdnId) return;
-      const nowIso = new Date().toISOString();
-      // Insert if missing; otherwise keep existing
-      await powersync.execute(
-        `INSERT INTO receiving_ticket_printing_batch (id, grower_delivery_note_id, state, create_date, write_date)
-         SELECT ?, ?, 'pending', ?, ?
-         WHERE NOT EXISTS (
-           SELECT 1 FROM receiving_ticket_printing_batch WHERE grower_delivery_note_id = ?
-         )`,
-        [`tpb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, gdnId, nowIso, nowIso, gdnId]
-      );
-    } catch {}
-  }, []);
-
-  const processTicketQueueOnce = useCallback(async () => {
-    if (!isConnected) return;
-    try {
-      // Find local pending ticket batches
-      const pending = await powersync.getAll<any>(
-        `SELECT id, grower_delivery_note_id FROM receiving_ticket_printing_batch WHERE state = 'pending'`
-      );
-      if (!Array.isArray(pending) || pending.length === 0) return;
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      if (!serverURL || !token) return;
-      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
-      for (const item of pending) {
-        const batchId = item.id;
-        try {
-          const note = await powersync.get<any>(
-            `SELECT document_number FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
-            [item.grower_delivery_note_id]
-          );
-          const doc = note?.document_number;
-          if (!doc) {
-            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-            continue;
-          }
-          // Pick any bale barcode for this document
-          const bale = await powersync.get<any>(
-            `SELECT COALESCE(scale_barcode, barcode) AS barcode FROM receiving_bale WHERE document_number = ? ORDER BY COALESCE(write_date, create_date) DESC LIMIT 1`,
-            [doc]
-          );
-          const barcode = bale?.barcode;
-          if (!barcode) {
-            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-            continue;
-          }
-          const rowToUse = row || '0';
-          const layToUse = lay || '1';
-          const spToUse = sellingPointId ? String(Number(sellingPointId)) : null;
-          const fsToUse = floorSaleId ? String(Number(floorSaleId)) : null;
-          if (!spToUse || !fsToUse) {
-            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-            continue;
-          }
-          const res = await axios.post(
-            `${normalized}/api/fo/receiving/sequencing_scan`,
-            { params: { scale_barcode: barcode, row: rowToUse, lay: layToUse, selling_point_id: spToUse, floor_sale_id: fsToUse } },
-            { headers: { 'Content-Type': 'application/json', 'X-FO-Token': token } }
-          );
-          const data = res?.data || {};
-          const ok = !!(data.result && data.result.success);
-          const deliveryCompleted = !!data.delivery_completed || !!data.result?.delivery_completed;
-          const ticketCreated = !!data.ticket_created || !!data.result?.ticket_created;
-          if (ok && (deliveryCompleted || ticketCreated)) {
-            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='printing', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-          } else {
-            await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-          }
-        } catch {
-          await powersync.execute(`UPDATE receiving_ticket_printing_batch SET state='failed', write_date=? WHERE id=?`, [new Date().toISOString(), batchId]);
-        }
-      }
-    } catch {}
-  }, [isConnected, row, lay, sellingPointId, floorSaleId]);
-
-  // Start background sync on mount / when connectivity returns
-  useEffect(() => {
-    let timer: any;
-    (async () => {
-      if (isConnected) {
-        try { await processTicketQueueOnce(); } catch {}
-        timer = setInterval(() => { processTicketQueueOnce(); }, 30000);
-      }
-    })();
-    return () => { if (timer) clearInterval(timer); };
-  }, [isConnected, processTicketQueueOnce]);
 
   // Original actionScanBale function with enhanced error handling
   const actionScanBale = useCallback(async () => {
@@ -268,9 +145,64 @@ const ScaleBaleScreen = () => {
     }
 
     if (!row.trim()) {
-      setResultMessage('Please enter a row number');
+      setResultMessage('❌ Please enter a row number');
       setIsError(true);
       return;
+    }
+
+    // Pre-validation: Validate row is a valid integer
+    const rowNumber = parseInt(row.trim(), 10);
+    if (isNaN(rowNumber) || rowNumber <= 0) {
+      setResultMessage('❌ Row number must be a valid positive integer');
+      setIsError(true);
+      return;
+    }
+
+    // Pre-validation: Validate lay is provided and valid
+    if (!lay || !lay.trim()) {
+      setResultMessage('❌ Please select a lay number');
+      setIsError(true);
+      return;
+    }
+
+    const layNumber = parseInt(lay.trim(), 10);
+    if (isNaN(layNumber) || layNumber <= 0) {
+      setResultMessage('❌ Lay number must be a valid positive integer');
+      setIsError(true);
+      return;
+          }
+
+    // Pre-validation: Validate selling_point_id and floor_sale_id are provided
+    if (!sellingPointId || !sellingPointId.trim()) {
+      setResultMessage('❌ Selling point is required for sequencing');
+      setIsError(true);
+      return;
+      }
+
+    if (!floorSaleId || !floorSaleId.trim()) {
+      setResultMessage('❌ Floor sale is required for sequencing');
+      setIsError(true);
+      return;
+    }
+
+    // Pre-validation: Check that floor sale has a sale_point_id configured
+    try {
+      const floorSaleIdNum = parseInt(floorSaleId, 10);
+      if (!isNaN(floorSaleIdNum)) {
+        const floorSale = await powersync.get<any>(
+          `SELECT sale_point_id FROM floor_maintenance_floor_sale WHERE id = ? LIMIT 1`,
+          [floorSaleIdNum]
+        );
+        
+        if (!floorSale?.sale_point_id) {
+          setResultMessage('❌ Error in selecting correct location for sale. This location does not have a sell point.');
+      setIsError(true);
+      return;
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Error checking floor sale configuration:', e);
+      // Continue - server will validate
     }
 
     // Do not block UI with a spinner; respond instantly
@@ -293,7 +225,8 @@ const ScaleBaleScreen = () => {
               b.grower_number,
               b.lot_number,
               b.group_number,
-              b.grower_delivery_note_id
+              b.grower_delivery_note_id,
+              b.state as bale_state
            FROM receiving_bale b
           WHERE b.scale_barcode = ? OR b.barcode = ?
           ORDER BY COALESCE(b.write_date, b.create_date) DESC
@@ -302,39 +235,269 @@ const ScaleBaleScreen = () => {
         );
 
         console.log('🔍 Local bale row:', bale);
-        if (bale) {
+        
+        // Pre-validation 1: Check if bale exists
+        if (!bale) {
+          setResultMessage(`❌ Bale with barcode ${scanned} not found in local database.\n\nPlease ensure the bale has been added to a delivery note first.`);
+          setIsError(true);
+          setLastScanSuccess(false);
+          setScaleBarcode('');
+          return;
+        }
+
+        // Pre-validation 2: Check for bale errors (if state indicates an error)
+        const baleState = (bale.bale_state || '').toLowerCase();
+        if (baleState && ['error', 'failed', 'invalid', 'rejected'].includes(baleState)) {
+          setResultMessage(`❌ Cannot sequence bale: Bale has an error state (${bale.bale_state}).\n\nPlease resolve the bale error before sequencing.`);
+          setIsError(true);
+          setLastScanSuccess(false);
+          setScaleBarcode('');
+          return;
+        }
+
           setGrowerNumber(bale.grower_number || '');
           setLotNumber(bale.lot_number || '');
           setGroupNumber(bale.group_number || '');
           let docNum = bale.document_number || '';
           const gdnId = bale.grower_delivery_note_id || null;
+        
+        // Pre-validation 3: Require we have some linkage to a delivery before recording
+        if (!docNum && !gdnId) {
+          console.warn('⚠️ Skipping sequencing insert: missing document_number and grower_delivery_note_id');
+          setResultMessage('❌ Could not resolve delivery for this bale.\n\nBale must be associated with a delivery note before sequencing.');
+          setIsError(true);
+          setLastScanSuccess(false);
+          setScaleBarcode('');
+          return;
+        }
+
           if (!docNum && bale.grower_delivery_note_id) {
             try {
               const gdn = await powersync.get<any>(
-                `SELECT document_number FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
+              `SELECT document_number, state, selling_point_id FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
                 [bale.grower_delivery_note_id]
               );
               docNum = gdn?.document_number || '';
               console.log('🔗 Resolved document number via GDN id:', docNum);
+            
+            // Pre-validation 4: Check GDN state - must be 'laid' to allow sequencing
+            const gdnState = (gdn?.state || '').toLowerCase();
+            if (gdnState && gdnState !== 'laid') {
+              setResultMessage(`❌ Cannot sequence bale: Delivery note ${docNum || gdnId} is in state "${gdn?.state || 'unknown'}" and must be "Laid" to allow sequencing.\n\nCurrent state: ${gdn?.state || 'unknown'}`);
+              setIsError(true);
+              setLastScanSuccess(false);
+              setScaleBarcode('');
+              return;
+            }
+
+            // Pre-validation 5: Check if delivery note has a selling point
+            if (!gdn?.selling_point_id) {
+              setResultMessage(`❌ Scan Failed\n\nThis delivery does not have a selling point.`);
+              setIsError(true);
+              setLastScanSuccess(false);
+              setScaleBarcode('');
+              return;
+            }
+
+            // Pre-validation 5b: Check that delivery selling point matches floor sale selling point
+            if (gdn?.selling_point_id && sellingPointId && floorSaleId) {
+              try {
+                const floorSale = await powersync.get<any>(
+                  `SELECT sale_point_id FROM floor_maintenance_floor_sale WHERE id = ? LIMIT 1`,
+                  [parseInt(floorSaleId, 10)]
+                );
+                
+                if (floorSale?.sale_point_id) {
+                  const deliverySellingPointId = gdn.selling_point_id;
+                  const floorSaleSellingPointId = floorSale.sale_point_id;
+                  
+                  if (deliverySellingPointId !== floorSaleSellingPointId) {
+                    // Get selling point name for better error message
+                    const sellingPoint = await powersync.get<any>(
+                      `SELECT name FROM floor_maintenance_selling_point WHERE id = ? LIMIT 1`,
+                      [deliverySellingPointId]
+                    );
+                    const sellingPointName = sellingPoint?.name || `Selling Point ${deliverySellingPointId}`;
+                    
+                    setResultMessage(`❌ Scan Failed\n\nThis delivery is for ${sellingPointName}. Please select the correct selling point.`);
+                    setIsError(true);
+                    setLastScanSuccess(false);
+                    setScaleBarcode('');
+                    return;
+                  }
+                } else {
+                  setResultMessage(`❌ Scan Failed\n\nError in selecting correct location for sale. This location does not have a sell point.`);
+                  setIsError(true);
+                  setLastScanSuccess(false);
+                  setScaleBarcode('');
+                  return;
+                }
+              } catch (e) {
+                console.warn('⚠️ Error checking floor sale selling point:', e);
+                // Continue - server will validate
+              }
+            }
             } catch (e) {
               console.warn('⚠️ Failed to resolve document number via GDN id', e);
             }
+        } else if (docNum) {
+          // Pre-validation 4: Check GDN state when we have document_number - must be 'laid'
+          try {
+            const gdn = await powersync.get<any>(
+              `SELECT state, selling_point_id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
+              [docNum]
+            );
+            const gdnState = (gdn?.state || '').toLowerCase();
+            if (gdnState && gdnState !== 'laid') {
+              setResultMessage(`❌ Cannot sequence bale: Delivery note ${docNum} is in state "${gdn?.state || 'unknown'}" and must be "Laid" to allow sequencing.\n\nCurrent state: ${gdn?.state || 'unknown'}`);
+              setIsError(true);
+              setLastScanSuccess(false);
+              setScaleBarcode('');
+              return;
+            }
+
+            // Pre-validation 5: Check if delivery note has a selling point
+            if (!gdn?.selling_point_id) {
+              setResultMessage(`❌ Scan Failed\n\nThis delivery does not have a selling point.`);
+              setIsError(true);
+              setLastScanSuccess(false);
+              setScaleBarcode('');
+              return;
+            }
+
+            // Pre-validation 5b: Check that delivery selling point matches floor sale selling point
+            if (gdn?.selling_point_id && sellingPointId && floorSaleId) {
+              try {
+                const floorSale = await powersync.get<any>(
+                  `SELECT sale_point_id FROM floor_maintenance_floor_sale WHERE id = ? LIMIT 1`,
+                  [parseInt(floorSaleId, 10)]
+                );
+                
+                if (floorSale?.sale_point_id) {
+                  const deliverySellingPointId = gdn.selling_point_id;
+                  const floorSaleSellingPointId = floorSale.sale_point_id;
+                  
+                  if (deliverySellingPointId !== floorSaleSellingPointId) {
+                    // Get selling point name for better error message
+                    const sellingPoint = await powersync.get<any>(
+                      `SELECT name FROM floor_maintenance_selling_point WHERE id = ? LIMIT 1`,
+                      [deliverySellingPointId]
+                    );
+                    const sellingPointName = sellingPoint?.name || `Selling Point ${deliverySellingPointId}`;
+                    
+                    setResultMessage(`❌ Scan Failed\n\nThis delivery is for ${sellingPointName}. Please select the correct selling point.`);
+                    setIsError(true);
+                    setLastScanSuccess(false);
+                    setScaleBarcode('');
+                    return;
+                  }
+                } else {
+                  setResultMessage(`❌ Scan Failed\n\nError in selecting correct location for sale. This location does not have a sell point.`);
+                  setIsError(true);
+                  setLastScanSuccess(false);
+                  setScaleBarcode('');
+                  return;
+                }
+              } catch (e) {
+                console.warn('⚠️ Error checking floor sale selling point:', e);
+                // Continue - server will validate
+              }
+            }
+          } catch (e) {
+            console.warn('⚠️ Failed to check GDN state', e);
           }
+        }
+
           setDocumentNumberDisplay(docNum);
           console.log('🧭 Set documentNumberDisplay to:', docNum);
 
-          // Prevent duplicate scans for the same delivery and barcode
-          let duplicateFound = false;
-          try {
-            // Require we have some linkage to a delivery before recording
-            if (!docNum && !gdnId) {
-              console.warn('⚠️ Skipping sequencing insert: missing document_number and grower_delivery_note_id');
-              duplicateFound = true; // prevent downstream progress bump
-              setResultMessage('Could not resolve delivery for this bale; not recorded.');
+        // Pre-validation 6: Check if bale has already been sequenced
+        try {
+          const existingSequencing = await powersync.get<any>(
+            `SELECT "row", lay, scan_date 
+             FROM receiving_curverid_bale_sequencing_model 
+             WHERE barcode = ? OR scale_barcode = ? 
+             LIMIT 1`,
+            [scanned, scanned]
+          );
+          
+          if (existingSequencing) {
+            const rowNum = existingSequencing.row;
+            const layNum = existingSequencing.lay;
+            const scanDate = existingSequencing.scan_date || 'unknown date';
+            setResultMessage(`❌ Scan Failed\n\nThis bale has already been sequenced in Row ${rowNum}, Lay ${layNum} on ${scanDate}.`);
               setIsError(true);
+            setLastScanSuccess(false);
+            setScaleBarcode('');
+            return;
+          }
+        } catch (sequencingError: any) {
+          // Table might not exist yet - treat as not sequenced
+          if (sequencingError?.message?.includes('no such table') || sequencingError?.message?.includes('does not exist')) {
+            console.log('⚠️ Sequencing table not found yet - treating bale as not sequenced');
+          } else if (sequencingError?.message?.includes('empty') || sequencingError?.message?.includes('Result set')) {
+            // No existing sequencing record - this is fine, continue
+          } else {
+            console.warn('⚠️ Error checking if bale already sequenced:', sequencingError);
+            // Continue - server will validate
+          }
+        }
+
+        // Pre-validation 7: Check if row/lay is full before allowing scan
+        try {
+          const rowNum = parseInt(row, 10);
+          const layNum = lay ? parseInt(lay, 10) : null;
+          const sellingPointIdNum = sellingPointId ? parseInt(sellingPointId, 10) : null;
+          const floorSaleIdNum = floorSaleId ? parseInt(floorSaleId, 10) : null;
+
+          if (!isNaN(rowNum) && layNum !== null && sellingPointIdNum !== null && floorSaleIdNum !== null) {
+            // Count existing bales in this row/lay combination for today
+            // Match backend logic: filter by selling_point_id, row, lay, and scan_date (today)
+            let existingCount = 0;
+            try {
+              // Get today's date in YYYY-MM-DD format
+              const today = new Date();
+              const todayStr = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+              
+              const countResult = await powersync.get<{ count: number }>(
+                `SELECT COUNT(*) as count 
+                 FROM receiving_curverid_bale_sequencing_model 
+                 WHERE "row" = ? AND lay = ? AND selling_point_id = ? AND scan_date = ?`,
+                [rowNum, layNum.toString(), sellingPointIdNum, todayStr]
+              );
+              existingCount = countResult?.count || 0;
+            } catch (countError: any) {
+              // Table might not exist yet - treat as 0 count
+              if (countError?.message?.includes('no such table') || countError?.message?.includes('does not exist')) {
+                console.log('⚠️ Sequencing table not found yet - treating row/lay as empty');
+                existingCount = 0;
+              } else {
+                console.warn('⚠️ Error counting existing bales in row/lay:', countError);
+                // Continue with validation - worst case we'll get server error
+              }
             }
 
-            const existingRows = await powersync.getAll<any>(
+            // Check if adding this bale would exceed capacity
+            const maxCapacity = rowCapacity || 5; // Default to 5 if not set
+            if (existingCount >= maxCapacity) {
+              setResultMessage(`❌ Scan Failed\n\nRow ${rowNum} Lay ${layNum} is full (${existingCount}/${maxCapacity} bales). Please select a different row or lay.`);
+              setIsError(true);
+              setLastScanSuccess(false);
+              setScaleBarcode('');
+              return;
+            }
+          }
+        } catch (capacityError) {
+          console.warn('⚠️ Error checking row/lay capacity:', capacityError);
+          // Continue with validation - worst case we'll get server error
+        }
+
+        // Prevent duplicate scans for the same delivery and barcode
+        let duplicateFound = false;
+        try {
+            let existingRows: any[] = [];
+            try {
+              existingRows = await powersync.getAll<any>(
               `SELECT id, document_number, COALESCE(barcode, scale_barcode) AS barcode,
                       "row" as row_number, lay, scan_datetime, write_date
                  FROM receiving_curverid_bale_sequencing_model
@@ -343,7 +506,16 @@ const ScaleBaleScreen = () => {
                 ORDER BY COALESCE(write_date, scan_datetime, create_date) DESC
                 LIMIT 1`,
               [scanned, scanned, docNum || '', gdnId || '']
-            );
+              ) || [];
+            } catch (tableError: any) {
+              // Table might not exist yet if schema was just updated - treat as no duplicates
+              if (tableError?.message?.includes('no such table') || tableError?.message?.includes('does not exist')) {
+                console.log('⚠️ Sequencing table not found yet - treating as no duplicates (table will be created on next sync)');
+                existingRows = [];
+              } else {
+                throw tableError; // Re-throw if it's a different error
+              }
+            }
             const alreadyExists = Array.isArray(existingRows) && existingRows.length > 0;
             if (alreadyExists) {
               duplicateFound = true;
@@ -393,9 +565,11 @@ const ScaleBaleScreen = () => {
               setIsError(true);
               setLastScanSuccess(false);
             } else {
-              // Insert into local sequencing table for progress tracking
+              // All pre-validations passed - safe to insert into local sequencing table
               const seqId = `seq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               const nowIso = new Date().toISOString();
+              
+              try {
               await powersync.execute(
                 `INSERT INTO receiving_curverid_bale_sequencing_model (
                    id, document_number, grower_delivery_note_id, scale_barcode, barcode, "row", lay, selling_point_id, floor_sale_id, scan_date, scan_datetime, create_date, write_date
@@ -415,18 +589,27 @@ const ScaleBaleScreen = () => {
                   nowIso
                 ]
               );
-
-              // Also post the scan to the server (online path) to persist in Odoo
-              try {
-                await saveBaleToRowTracking(parseInt(row, 10) || 0, scanned, {
-                  document_number: docNum || undefined,
-                  grower_number: bale?.grower_number,
-                  lot_number: bale?.lot_number,
-                  group_number: bale?.group_number
-                });
-              } catch (e) {
-                console.warn('⚠️ Server sequencing_scan call failed (kept local):', e);
+                console.log('✅ Sequencing record inserted successfully');
+              } catch (insertError: any) {
+                // Check if table doesn't exist yet
+                if (insertError?.message?.includes('no such table') || insertError?.message?.includes('does not exist')) {
+                  console.warn('⚠️ Sequencing table not found yet - record will be inserted when table is created (restart app or wait for PowerSync schema update)');
+                  // Don't show error to user - the record will be created when PowerSync creates the table
+                  // PowerSync will handle the sync once the table exists
+                } else {
+                  console.error('❌ Failed to insert sequencing record:', insertError);
+                  setResultMessage(`❌ Failed to save sequencing record: ${insertError instanceof Error ? insertError.message : 'Unknown error'}`);
+                  setIsError(true);
+                  setLastScanSuccess(false);
+                  setScaleBarcode('');
+                  return;
+                }
               }
+
+              // Sequencing record will be synced to server via PowerSync Connector
+              // The Connector handles this through unified_create with type 'bale_sequencing'
+              // Odoo will automatically create ticket printing batch when delivery completes
+              console.log('✅ Sequencing record saved locally - will sync to server via PowerSync');
             }
           } catch (e) {
             console.warn('⚠️ Duplicate check/insert failed', e);
@@ -441,12 +624,34 @@ const ScaleBaleScreen = () => {
 
           // Compute progress for the same document_number
           if (docNum || gdnId) {
-            const counts = await powersync.get<any>(
+            let counts: any = { scanned_count: 0, expected_count: 0 };
+            try {
+              counts = await powersync.get<any>(
               `SELECT 
                    (SELECT COUNT(DISTINCT COALESCE(barcode, scale_barcode)) FROM receiving_curverid_bale_sequencing_model WHERE (document_number = ? OR grower_delivery_note_id = ?)) AS scanned_count,
                    (SELECT COALESCE(number_of_bales_delivered, number_of_bales, 0) FROM receiving_grower_delivery_note WHERE (document_number = ? OR id = ?) LIMIT 1) AS expected_count`,
               [docNum || '', gdnId || '', docNum || '', gdnId || '']
-            );
+              ) || { scanned_count: 0, expected_count: 0 };
+            } catch (tableError: any) {
+              // Table might not exist yet if schema was just updated - use 0 for scanned_count
+              if (tableError?.message?.includes('no such table') || tableError?.message?.includes('does not exist')) {
+                console.log('⚠️ Sequencing table not found yet - using 0 for scanned count');
+                // Still try to get expected_count from GDN
+                try {
+                  const gdnCounts = await powersync.get<any>(
+                    `SELECT COALESCE(number_of_bales_delivered, number_of_bales, 0) AS expected_count 
+                     FROM receiving_grower_delivery_note 
+                     WHERE (document_number = ? OR id = ?) LIMIT 1`,
+                    [docNum || '', gdnId || '']
+                  );
+                  counts = { scanned_count: 0, expected_count: gdnCounts?.expected_count || 0 };
+                } catch (e) {
+                  counts = { scanned_count: 0, expected_count: 0 };
+                }
+              } else {
+                throw tableError; // Re-throw if it's a different error
+              }
+            }
             const scannedCount = Number(counts?.scanned_count) || 0;
             const expectedCount = Number(counts?.expected_count) || 0;
             setTotalScanned(scannedCount);
@@ -464,12 +669,8 @@ const ScaleBaleScreen = () => {
                 );
                 
                 console.log(`🎉 GD Note ${docNum} just completed locally!`);
-                // Enqueue ticket printing for offline sync
-                try { await enqueueTicketPrinting(docNum || ''); } catch {}
-                // Create local mirror in actual ticket table
-                try { await createLocalTicketPrintingBatch(docNum || '', gdnId); } catch {}
                 const growerInfo = gdNote?.grower_name ? ` (${gdNote.grower_name})` : '';
-                const message = `✅ GD Note ${docNum}${growerInfo} completed!\n\nAll ${expectedCount} bales have been scanned. Ticket printing will be triggered when synced.`;
+                const message = `✅ GD Note ${docNum}${growerInfo} completed!\n\nAll ${expectedCount} bales have been scanned.`;
                 setSuccessMessage(message);
                 setShowSuccess(true);
                 
@@ -483,24 +684,21 @@ const ScaleBaleScreen = () => {
                 // Show alert for immediate feedback
                 Alert.alert(
                   'Delivery Completed! 🎉',
-                  `GD Note ${docNum}${growerInfo} has been completed.\n\nAll ${expectedCount} bales scanned. Ticket printing will be triggered when synced to server.`,
+                  `GD Note ${docNum}${growerInfo} has been completed.\n\nAll ${expectedCount} bales scanned.`,
                   [{ text: 'OK' }]
                 );
               }
             }
 
-            // Ticket printing is triggered server-side by sequencing_scan when delivery completes
-          }
-        } else {
-          // Fallback: clear last scan info but keep progress unchanged
-          setGrowerNumber('');
-          setLotNumber('');
-          setGroupNumber('');
-          setDocumentNumberDisplay('');
-          console.log('🧭 Cleared documentNumberDisplay (no local bale found)');
+            // Odoo will automatically create ticket printing batch when delivery completes
         }
       } catch (e) {
         console.warn('⚠️ Local progress fetch failed', e);
+        setResultMessage(`❌ Error processing bale lookup: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        setIsError(true);
+        setLastScanSuccess(false);
+        setScaleBarcode('');
+        return;
       }
 
       const newRowBales = currentRowBales + 1;
@@ -582,178 +780,6 @@ const ScaleBaleScreen = () => {
     }
   };
 
-  
-  
-  const saveBaleToRowTracking = async (rowNumber: number, barcode: string, gdInfo: any) => {
-    try {
-      console.log('🔍 saveBaleToRowTracking called with:', { rowNumber, barcode, gdInfo });
-      
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      
-      console.log('🔍 Server config:', { serverURL: !!serverURL, token: !!token });
-      
-      if (!serverURL || !token) {
-        console.warn('❌ Missing server configuration for row bale tracking');
-        return;
-      }
-
-      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
-      console.log('🔍 Making API call to:', `${normalized}/api/fo/receiving/sequencing_scan`);
-      
-      // Use selling point and floor sale from navigation parameters
-      // Based on database: Floor Sale ID 1 ("SS") has sale_point_id=7
-      const sellingPointIdToUse = sellingPointId || '7'; // Fallback to sale_point_id=7 (matches Floor Sale ID 1)
-      const floorSaleIdToUse = floorSaleId || '1'; // Fallback to SS (ID 1)
-      
-      console.log('🔍 Navigation params - sellingPointId:', sellingPointId, 'floorSaleId:', floorSaleId);
-      console.log('🔍 State values - sellingPointId:', sellingPointId, 'floorSaleId:', floorSaleId);
-      console.log('🔍 Using selling point ID:', sellingPointIdToUse, 'floor sale ID:', floorSaleIdToUse);
-      console.log('🔍 Full request payload:', {
-        scale_barcode: barcode,
-        row: rowNumber.toString(),
-        lay,
-        selling_point_id: sellingPointIdToUse,
-        floor_sale_id: floorSaleIdToUse
-      });
-      
-      const response = await axios.post(
-        `${normalized}/api/fo/receiving/sequencing_scan`,
-        { 
-          params: { 
-            scale_barcode: barcode,
-            row: rowNumber.toString(),
-            lay,
-            selling_point_id: sellingPointIdToUse,
-            floor_sale_id: floorSaleIdToUse
-          } 
-        },
-        { headers: { 'Content-Type': 'application/json', 'X-FO-Token': token } }
-      );
-
-      console.log('🔍 API Response:', response.data);
-      console.log('🔍 Response status:', response.status);
-      
-      const result = response.data;
-      console.log('🔍 Full API response:', JSON.stringify(result, null, 2));
-      console.log('🔍 Result success:', result?.result?.success);
-      console.log('🔍 Result message:', result?.result?.message);
-      
-      if (result && result.result && result.result.success) {
-        console.log('✅ Bale scanned successfully:', result.message);
-        console.log('📊 Row info:', result.row_info);
-        console.log('📦 Bale info:', result.bale_info);
-        
-        if (result.delivery_completed) {
-          console.log('🎉 Delivery completed!', result.message);
-          
-          // Show acknowledgement for delivery completion and ticket printing
-          const docNumber = result.bale_info?.document_number || result.result?.document_number || 'Unknown';
-          const message = `✅ GD Note ${docNumber} completed!\n\nAll bales have been scanned. Ticket printing has been triggered automatically.`;
-          setSuccessMessage(message);
-          setShowSuccess(true);
-          
-          // Also show alert for immediate feedback
-          Alert.alert(
-            'Delivery Completed! 🎉',
-            `GD Note ${docNumber} has been completed. All bales scanned and sent to ticket printing.`,
-            [{ text: 'OK' }]
-          );
-        }
-        
-        // Refresh PowerSync data to show updated row management
-        try {
-          await powersync.execute('SELECT 1'); // Trigger sync
-          console.log('🔄 PowerSync data refreshed');
-        } catch (e) {
-          console.warn('⚠️ PowerSync refresh failed:', e);
-        }
-        
-        return { success: true, result: result.result };
-      } else {
-        const errorMessage = result?.result?.message || 'Unknown error';
-        console.warn('❌ Failed to scan bale:', errorMessage);
-        console.log('❌ Full result:', result);
-        
-        // Clean up HTML tags from error message
-        const cleanErrorMessage = errorMessage
-          .replace(/<[^>]*>/g, '') // Remove HTML tags
-          .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
-          .replace(/&amp;/g, '&') // Replace &amp; with &
-          .replace(/&lt;/g, '<') // Replace &lt; with <
-          .replace(/&gt;/g, '>') // Replace &gt; with >
-          .trim();
-        
-        // Show user-friendly error message
-        console.log('🔍 Setting error message:', cleanErrorMessage);
-        setResultMessage(`❌ Scan Failed: ${cleanErrorMessage}`);
-        setIsError(true);
-        console.log('🔍 Error message set in UI');
-        
-        return { success: false, error: cleanErrorMessage };
-      }
-    } catch (e: any) {
-      console.error('❌ Error scanning bale:', e?.message || e);
-      
-      // If it's an API error with a response, try to extract the error message
-      if (e?.response?.data?.result?.message) {
-        const errorMessage = e.response.data.result.message;
-        const cleanErrorMessage = errorMessage
-          .replace(/<[^>]*>/g, '') // Remove HTML tags
-          .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
-          .replace(/&amp;/g, '&') // Replace &amp; with &
-          .replace(/&lt;/g, '<') // Replace &lt; with <
-          .replace(/&gt;/g, '>') // Replace &gt; with >
-          .trim();
-        
-        setResultMessage(`❌ Scan Failed: ${cleanErrorMessage}`);
-        setIsError(true);
-        return { success: false, error: cleanErrorMessage };
-      } else {
-        setResultMessage(`❌ Error scanning bale: ${e?.message || 'Unknown error'}`);
-        setIsError(true);
-        return { success: false, error: e?.message || 'Unknown error' };
-      }
-    }
-  };
-
-  const addBaleToServer = async (documentNumber: string, barcode: string, lot?: string | number, group?: string | number) => {
-    try {
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      if (!serverURL || !token) throw new Error('Missing server config');
-      const normalized = serverURL.startsWith('http') ? serverURL : `https://${serverURL}`;
-      const res = await axios.request({
-        method: 'POST',
-        url: `${normalized}/api/fo/add-bale/`,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-FO-TOKEN': token
-        },
-        data: {
-          jsonrpc: '2.0',
-          method: 'call',
-          params: {
-            document_number: documentNumber,
-            barcode: barcode,
-            lot_number: lot ?? null,
-            group_number: group ?? null
-          },
-          id: 1
-        }
-      });
-      const ok = !!res?.data?.result?.success;
-      if (!ok) {
-        const msg = res?.data?.result?.message || 'Server rejected bale';
-        throw new Error(msg);
-      }
-      return true;
-    } catch (e: any) {
-      console.error('addBaleToServer failed', e);
-      return false;
-    }
-  };
-
   // Check if all bales for a GD Note are scanned
   const checkGdNoteCompletion = (documentNumber: string, updatedScannedBales?: any[]) => {
     const balesToCheck = updatedScannedBales || scannedBales;
@@ -767,7 +793,7 @@ const ScaleBaleScreen = () => {
     return gdBales.length >= expected;
   };
 
-  // Manual ticket printing removed; sequencing_scan handles printing automatically
+  // Odoo automatically creates ticket printing batches when delivery completes
 
   // Fetch pending GD Notes scanned on this device (local sequencing), not global pending
   const fetchAllPendingGdNotes = async () => {
@@ -775,14 +801,25 @@ const ScaleBaleScreen = () => {
       console.log('🔍 Fetching device-local pending GD Notes (from sequencing model)...');
 
       // 1) Gather local scans per document_number on this device
-      const localScans = await powersync.getAll<any>(
+      let localScans: any[] = [];
+      try {
+        localScans = await powersync.getAll<any>(
         `SELECT document_number,
                 COUNT(DISTINCT COALESCE(barcode, scale_barcode)) AS scanned_bales,
                 MAX(write_date) AS last_scan_date
            FROM receiving_curverid_bale_sequencing_model
           WHERE document_number IS NOT NULL AND TRIM(document_number) <> ''
           GROUP BY document_number`
-      );
+        ) || [];
+      } catch (tableError: any) {
+        // Table might not exist yet if schema was just updated - return empty array
+        if (tableError?.message?.includes('no such table') || tableError?.message?.includes('does not exist')) {
+          console.log('⚠️ Sequencing table not found yet - returning empty list (table will be created on next sync)');
+          setAllPendingGdNotes([]);
+          return [];
+        }
+        throw tableError; // Re-throw if it's a different error
+      }
 
       if (!Array.isArray(localScans) || localScans.length === 0) {
         setAllPendingGdNotes([]);
@@ -856,18 +893,14 @@ const ScaleBaleScreen = () => {
             const note = processed.find(n => n.document_number === docNumber);
             if (note) {
               console.log(`🎉 GD Note ${docNumber} just completed!`);
-              // Enqueue ticket printing for offline sync (device-local completed list)
-              try { await enqueueTicketPrinting(docNumber); } catch {}
-              // Create local mirror in actual ticket table
-              try { await createLocalTicketPrintingBatch(docNumber, null); } catch {}
-              const message = `✅ GD Note ${docNumber} completed!\n\nAll ${note.number_of_bales_delivered} bales have been scanned. Ticket printing has been triggered automatically.`;
+              const message = `✅ GD Note ${docNumber} completed!\n\nAll ${note.number_of_bales_delivered} bales have been scanned.`;
               setSuccessMessage(message);
               setShowSuccess(true);
               
               // Show alert for immediate feedback
               Alert.alert(
                 'Delivery Completed! 🎉',
-                `GD Note ${docNumber} (${note.grower_name}) has been completed.\n\nAll ${note.number_of_bales_delivered} bales scanned and sent to ticket printing.`,
+                `GD Note ${docNumber} (${note.grower_name}) has been completed.\n\nAll ${note.number_of_bales_delivered} bales scanned.`,
                 [{ text: 'OK' }]
               );
             }
@@ -1260,7 +1293,7 @@ const ScaleBaleScreen = () => {
                   {note.status === 'completed' && (
                     <View className="bg-green-50 p-2 rounded border border-green-200">
                       <Text className="text-green-700 text-sm font-medium">
-                        ✅ Delivery completed. Ticket printing is triggered automatically.
+                        ✅ Delivery completed.
                       </Text>
                     </View>
                   )}

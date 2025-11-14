@@ -1,35 +1,29 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import { SuccessToast } from '@/components/SuccessToast';
+import { usePowerSync } from '@powersync/react';
 
 export default function GdnCloseScreen() {
   const { id } = useLocalSearchParams();
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const powersync = usePowerSync();
 
   const run = async () => {
     try {
-      setLoading(true);
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
-      const res = await fetch(`${base(serverURL)}/api/fo/receiving/gdn/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-FO-TOKEN': token || '' },
-        body: JSON.stringify({ id: Number(id) })
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.success) {
-        Alert.alert('Failed', body?.message || `HTTP ${res.status}`);
-      } else {
-        const message = body.message || 'Delivery note closed successfully!';
-        setSuccessMessage(message);
-        setShowSuccess(true);
-        Alert.alert('Success', message);
+      if (!id || typeof id !== 'string') {
+        Alert.alert('Error', 'Invalid Delivery Note ID.');
+        return;
       }
+      setLoading(true);
+
+      await powersync.execute('UPDATE receiving_grower_delivery_note SET state = ? WHERE id = ?', ['checked', id]);
+
+      const message = 'Delivery note has been marked for closing. It will be processed in the background.';
+      setSuccessMessage(message);
+      setShowSuccess(true);
     } catch (e: any) {
       Alert.alert('Error', String(e?.message || e));
     } finally {

@@ -18,6 +18,8 @@ export const powersync = new PowerSyncDatabase({
     }
 });
 
+// Export connector instance so it can be accessed for manual upload triggers
+export let connectorInstance: Connector | null = null;
 
 export const setupPowerSync = async (clientId?: number) => {
   const odoo_employee_id = await SecureStore.getItemAsync('odoo_employee_id')
@@ -30,10 +32,10 @@ export const setupPowerSync = async (clientId?: number) => {
   //   return
   // }
   // Uses the backend connector that will be created in the next section
-  const connector = new Connector();
+  connectorInstance = new Connector();
   
   // Connect with options including clientId if provided
-  powersync.connect(connector, { 
+  powersync.connect(connectorInstance, { 
     // clientId: clientId, // Will be undefined if not provided
     // You can also add client parameters here if needed
     params: {

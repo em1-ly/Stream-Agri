@@ -9,8 +9,8 @@ import { ResCompanyRecord } from '@/powersync/Schema';
 const menuItems = [
   { id: '1', title: 'Classification', href: '/(app)/datacapturing/classification' },
   { id: '2', title: 'Buyer Details', href: '/(app)/datacapturing/buyer-details' },
-  { id: '3', title: 'Release', href: '/(app)/datacapturing/all-details' },
-  { id: '4', title: 'Arbitration', href: '/(app)/datacapturing/abitration' },
+  { id: '3', title: 'Arbitration', href: '/(app)/datacapturing/abitration' },
+  { id: '4', title: 'Release', href: '/(app)/datacapturing/all-details' },
 ];
 
 const MenuComponent = () => {

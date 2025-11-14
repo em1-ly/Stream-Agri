@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Scan, ChevronDown } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
-import { updateBaleDataAPI } from '@/api/odoo_api';
 
 // Define the structure for the bale data, including buyer details
 interface BaleData {
@@ -352,67 +351,12 @@ const BuyerDetailsScreen = () => {
         // Continue with server save even if local save fails
       }
 
-      // 2. Commit to Odoo via API
-      // Note: API expects codes/names, not IDs - it will resolve them internally
-      const updates: any = {};
-
-      // Price - convert to number if provided
-      if (formState.price && formState.price.trim()) {
-        try {
-          updates.price = parseFloat(formState.price);
-        } catch (e) {
-          // Invalid price format, will be validated by API
-          updates.price = formState.price;
-        }
-      }
-
-      // Buyer - send buyer_code (string), not ID
-      if (formState.buyer && formState.buyer.trim()) {
-        updates.buyer = formState.buyer;
-      }
-
-      // Buyer Grade - send grade name (string), not ID
-      if (formState.buyerGrade && formState.buyerGrade.trim()) {
-        updates.buyer_grade = formState.buyerGrade;
-      }
-
-      // Sale Code - send name (string), not ID (API expects salecode_id field but searches by name)
-      if (formState.saleCode && formState.saleCode.trim()) {
-        updates.salecode_id = formState.saleCode;
-      }
-
-      // Always set buying staff and checking staff to current logged-in employee
-      // The API will resolve 'me' to the authenticated employee ID from the session token
-      updates.buying_staff_hr_user_id = 'me';
-      updates.checking_staff_hr_user_id = 'me';
-
-      console.log('📤 Sending buyer details to Odoo with updates:', JSON.stringify(updates, null, 2));
-
-      try {
-        const response = await updateBaleDataAPI(baleData.barcode, updates);
-
-        if (response.data.result && response.data.result.success) {
-          setSuccessMessage(response.data.result.message || 'Buyer details saved successfully!');
-          
-          // Clear barcode and reset state after successful save
-          setTimeout(() => {
-            resetState(); // Clear barcode and all state
-            setSuccessMessage(null);
-          }, 1500);
-        } else {
-          const errorList = response.data.result.errors || [];
-          throw new Error(response.data.result.message || errorList.join(', ') || 'An unknown error occurred.');
-        }
-      } catch (apiError: any) {
-        // If API fails but local save succeeded, show warning but don't fail completely
-        const apiErrorMessage = apiError.response?.data?.error?.data?.message || apiError.message || 'Failed to sync to server';
-        console.warn('⚠️ API save failed, but local save succeeded:', apiErrorMessage);
-        setSuccessMessage('Saved locally. Will sync to server when online.');
-        setTimeout(() => {
-          resetState(); // Clear barcode and all state
-          setSuccessMessage(null);
-        }, 2000);
-      }
+      setSuccessMessage('Buyer details saved locally. Will sync to server when online.');
+      
+      setTimeout(() => {
+        resetState(); // Clear barcode and all state
+        setSuccessMessage(null);
+      }, 1500);
   
     } catch (e: any) {
       const errorMessage = e.message || 'An error occurred while saving.';
@@ -497,6 +441,15 @@ const BuyerDetailsScreen = () => {
                     handleFormChange('buyer', item.buyer_code);
                     setSelectedBuyerId(String(item.id));
                   }}
+                />
+                
+                <View className="mb-3" />
+                
+                <Text className="font-semibold text-gray-600 mb-1">Buyer Number</Text>
+                <TextInput 
+                  className="border border-gray-300 rounded-md p-2" 
+                  placeholder="Buyer Number" 
+                  autoCapitalize="characters"
                 />
                 
                 <View className="mb-3" />

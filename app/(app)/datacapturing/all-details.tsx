@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Scan } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
-import { updateBaleDataAPI } from '@/api/odoo_api';
-import * as SecureStore from 'expo-secure-store';
 
 interface BaleData {
   id: string;
@@ -143,38 +141,122 @@ const AllDetailsScreen = () => {
 
   const handleSave = async () => {
     if (!baleData) return;
+    Keyboard.dismiss();
     setIsSaving(true);
     setError(null);
     setSuccessMessage(null);
   
     try {
-      const updates = {
-        timb_grade: formState.timbGrade,
-        buyer: formState.buyer,
-        buyer_grade: formState.buyerGrade,
-        price: formState.price,
-        salecode_id: formState.saleCode,
-        hessian: formState.hessian,
-        lot_number: formState.lotNumber,
-        group_number: formState.groupNumber
-      };
-      
-      const response = await updateBaleDataAPI(baleData.barcode, updates);
+      // Resolve names/codes to IDs
+      let timbGradeId: number | null = null;
+      let buyerId: number | null = null;
+      let buyerGradeId: number | null = null;
+      let salecodeId: number | null = null;
+      let hessianId: number | null = null;
 
-      if (response.data.result && response.data.result.success) {
-        setSuccessMessage(response.data.result.message || 'All details saved successfully!');
-        
-        setTimeout(() => {
-            fetchBaleData(baleData.barcode);
-            setSuccessMessage(null);
-        }, 1500);
-      } else {
-        const errorList = response.data.result.errors || [];
-        throw new Error(response.data.result.message || errorList.join(', ') || 'An unknown error occurred.');
+      // Resolve TIMB Grade
+      if (formState.timbGrade) {
+        const timbGrade = await powersync.get<any>(
+          'SELECT id FROM floor_maintenance_timb_grade WHERE name = ? LIMIT 1',
+          [formState.timbGrade.toUpperCase()]
+        );
+        if (timbGrade) {
+          timbGradeId = timbGrade.id;
+        } else {
+          throw new Error(`TIMB Grade "${formState.timbGrade}" not found locally. Please sync the app.`);
+        }
       }
+
+      // Resolve Buyer
+      if (formState.buyer) {
+        const buyer = await powersync.get<any>(
+          'SELECT id FROM buyers_buyer WHERE buyer_code = ? LIMIT 1',
+          [formState.buyer.toUpperCase()]
+        );
+        if (buyer) {
+          buyerId = buyer.id;
+        } else {
+          throw new Error(`Buyer "${formState.buyer}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Buyer Grade (depends on buyer)
+      if (formState.buyerGrade && buyerId) {
+        const buyerGrade = await powersync.get<any>(
+          'SELECT id FROM buyers_grade WHERE grade = ? AND buyer = ? LIMIT 1',
+          [formState.buyerGrade.toUpperCase(), buyerId]
+        );
+        if (buyerGrade) {
+          buyerGradeId = buyerGrade.id;
+        } else {
+          throw new Error(`Buyer Grade "${formState.buyerGrade}" not found for buyer "${formState.buyer}". Please sync the app.`);
+        }
+      } else if (formState.buyerGrade && !buyerId) {
+        throw new Error('Cannot set Buyer Grade without a valid Buyer.');
+      }
+
+      // Resolve Sale Code
+      if (formState.saleCode) {
+        const salecode = await powersync.get<any>(
+          'SELECT id FROM data_processing_salecode WHERE name = ? LIMIT 1',
+          [formState.saleCode.toUpperCase()]
+        );
+        if (salecode) {
+          salecodeId = salecode.id;
+        } else {
+          throw new Error(`Sale Code "${formState.saleCode}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Hessian
+      if (formState.hessian) {
+        const hessian = await powersync.get<any>(
+          'SELECT id FROM receiving_hessian WHERE name = ? LIMIT 1',
+          [formState.hessian]
+        );
+        if (hessian) {
+          hessianId = hessian.id;
+        } else {
+          throw new Error(`Hessian "${formState.hessian}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Update the bale with resolved IDs
+      await powersync.execute(
+        `UPDATE receiving_bale SET
+          timb_grade = ?,
+          buyer = ?,
+          buyer_grade = ?,
+          price = ?,
+          salecode_id = ?,
+          hessian = ?,
+          lot_number = ?,
+          group_number = ?,
+          write_date = ?
+        WHERE id = ?`,
+        [
+          timbGradeId,
+          buyerId,
+          buyerGradeId,
+          formState.price ? parseFloat(formState.price) : null,
+          salecodeId,
+          hessianId,
+          formState.lotNumber || null,
+          formState.groupNumber ? parseInt(formState.groupNumber, 10) : null,
+          new Date().toISOString(),
+          baleData.id
+        ]
+      );
+
+      setSuccessMessage('All details saved locally. Will sync to server.');
+      
+      setTimeout(() => {
+          fetchBaleData(baleData.barcode);
+          setSuccessMessage(null);
+      }, 1500);
   
     } catch (e: any) {
-      const errorMessage = e.response?.data?.error?.data?.message || e.message || 'An error occurred while saving.';
+      const errorMessage = e.message || 'An error occurred while saving.';
       Alert.alert('Error', `Failed to save details: ${errorMessage}`);
       setError(errorMessage);
     } finally {
@@ -187,98 +269,111 @@ const AllDetailsScreen = () => {
       Alert.alert('Error', 'No bale loaded to release.');
       return;
     }
+    Keyboard.dismiss();
     setIsReleasing(true);
     setError(null);
     try {
-      const updates = {
-        timb_grade: formState.timbGrade,
-        buyer: formState.buyer,
-        buyer_grade: formState.buyerGrade,
-        price: formState.price,
-        salecode_id: formState.saleCode,
-        hessian: formState.hessian,
-        lot_number: formState.lotNumber,
-        group_number: formState.groupNumber
-      };
+      // Resolve names/codes to IDs
+      let timbGradeId: number | null = null;
+      let buyerId: number | null = null;
+      let buyerGradeId: number | null = null;
+      let salecodeId: number | null = null;
+      let hessianId: number | null = null;
 
-      // OFFLINE-FIRST: apply updates locally
-      try {
-        await powersync.execute(
-          `UPDATE receiving_bale
-             SET timb_grade = COALESCE(?, timb_grade),
-                 buyer = COALESCE(?, buyer),
-                 buyer_grade = COALESCE(?, buyer_grade),
-                 price = COALESCE(?, price),
-                 salecode_id = COALESCE(?, salecode_id),
-                 hessian = COALESCE(?, hessian),
-                 lot_number = COALESCE(?, lot_number),
-                 group_number = COALESCE(?, group_number)
-           WHERE barcode = ? OR scale_barcode = ?`,
-          [
-            updates.timb_grade || null,
-            updates.buyer || null,
-            updates.buyer_grade || null,
-            updates.price || null,
-            updates.salecode_id || null,
-            updates.hessian || null,
-            updates.lot_number || null,
-            updates.group_number || null,
-            baleData.barcode,
-            baleData.barcode
-          ]
+      // Resolve TIMB Grade
+      if (formState.timbGrade) {
+        const timbGrade = await powersync.get<any>(
+          'SELECT id FROM floor_maintenance_timb_grade WHERE name = ? LIMIT 1',
+          [formState.timbGrade.toUpperCase()]
         );
-      } catch (_e) {
-        // ignore local update failure here; we will still attempt to queue
-      }
-
-      // Queue release locally for later sync (create table if not exists)
-      try {
-        await powersync.execute(
-          `CREATE TABLE IF NOT EXISTS mobile_bale_release_queue (
-             id TEXT PRIMARY KEY,
-             barcode TEXT,
-             updates TEXT,
-             created_at TEXT
-           )`
-        );
-        const queueId = `rel_${Date.now()}`;
-        await powersync.execute(
-          `INSERT INTO mobile_bale_release_queue (id, barcode, updates, created_at)
-           VALUES (?, ?, ?, datetime('now'))`,
-          [queueId, baleData.barcode, JSON.stringify(updates)]
-        );
-      } catch (_e) {
-        // if queue table cannot be created/inserted, still proceed
-      }
-
-      // Try online combined endpoint if available; fallback stays local-only
-      try {
-        const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-        const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-        const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
-        if (serverURL && token) {
-          const resp = await fetch(`${base(serverURL)}/api/fo/bale/save_and_release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-FO-Token': token || '' },
-            body: JSON.stringify({ params: { barcode: baleData.barcode, updates } })
-          });
-          if (resp.ok) {
-            const payload = await resp.json();
-            const data = payload.result || payload;
-            if (data?.success) {
-              Alert.alert('Success', data.message || 'Bale saved and released');
-              await fetchBaleData(baleData.barcode);
-              if (data.salemaster && data.salemaster.is_released) {
-                Alert.alert('Sale Released', 'All bales released. You can approve the sale.');
-              }
-              setIsReleasing(false);
-              return;
-            }
-          }
+        if (timbGrade) {
+          timbGradeId = timbGrade.id;
+        } else {
+          throw new Error(`TIMB Grade "${formState.timbGrade}" not found locally. Please sync the app.`);
         }
-      } catch (_e) {
-        // stay offline-only
       }
+
+      // Resolve Buyer
+      if (formState.buyer) {
+        const buyer = await powersync.get<any>(
+          'SELECT id FROM buyers_buyer WHERE buyer_code = ? LIMIT 1',
+          [formState.buyer.toUpperCase()]
+        );
+        if (buyer) {
+          buyerId = buyer.id;
+        } else {
+          throw new Error(`Buyer "${formState.buyer}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Buyer Grade (depends on buyer)
+      if (formState.buyerGrade && buyerId) {
+        const buyerGrade = await powersync.get<any>(
+          'SELECT id FROM buyers_grade WHERE grade = ? AND buyer = ? LIMIT 1',
+          [formState.buyerGrade.toUpperCase(), buyerId]
+        );
+        if (buyerGrade) {
+          buyerGradeId = buyerGrade.id;
+        } else {
+          throw new Error(`Buyer Grade "${formState.buyerGrade}" not found for buyer "${formState.buyer}". Please sync the app.`);
+        }
+      } else if (formState.buyerGrade && !buyerId) {
+        throw new Error('Cannot set Buyer Grade without a valid Buyer.');
+      }
+
+      // Resolve Sale Code
+      if (formState.saleCode) {
+        const salecode = await powersync.get<any>(
+          'SELECT id FROM data_processing_salecode WHERE name = ? LIMIT 1',
+          [formState.saleCode.toUpperCase()]
+        );
+        if (salecode) {
+          salecodeId = salecode.id;
+        } else {
+          throw new Error(`Sale Code "${formState.saleCode}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Hessian
+      if (formState.hessian) {
+        const hessian = await powersync.get<any>(
+          'SELECT id FROM receiving_hessian WHERE name = ? LIMIT 1',
+          [formState.hessian]
+        );
+        if (hessian) {
+          hessianId = hessian.id;
+        } else {
+          throw new Error(`Hessian "${formState.hessian}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Update the bale with resolved IDs and set is_released
+      await powersync.execute(
+        `UPDATE receiving_bale SET
+          timb_grade = ?,
+          buyer = ?,
+          buyer_grade = ?,
+          price = ?,
+          salecode_id = ?,
+          hessian = ?,
+          lot_number = ?,
+          group_number = ?,
+          is_released = 1,
+          write_date = ?
+        WHERE id = ?`,
+        [
+          timbGradeId,
+          buyerId,
+          buyerGradeId,
+          formState.price ? parseFloat(formState.price) : null,
+          salecodeId,
+          hessianId,
+          formState.lotNumber || null,
+          formState.groupNumber ? parseInt(formState.groupNumber, 10) : null,
+          new Date().toISOString(),
+          baleData.id
+        ]
+      );
 
       // Offline success path
       Alert.alert('Success', 'Bale saved and release queued (offline).');

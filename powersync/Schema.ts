@@ -1014,7 +1014,8 @@ const receiving_bale = new Table(
     source_mass: column.real,
     lot_number_integer: column.integer,
     selling_point_code: column.text,
-    hessian: column.integer  // Foreign key to receiving_hessian
+    hessian: column.integer,  // Foreign key to receiving_hessian
+    is_released: column.integer  // Boolean - indicates if bale has been released
   },
   { indexes: {} }
 );
@@ -1037,7 +1038,8 @@ const receiving_curverid_row_management = new Table({
   write_date: column.text,
 });
 
-// Local-only mirror for receiving_curverid.bale_sequencing_model to track scans offline
+// Bale sequencing model - synced to server via PowerSync Connector
+// Records are created locally and uploaded to server via unified_create endpoint
 const receiving_curverid_bale_sequencing_model = new Table({
   id: column.text,
   document_number: column.text,
@@ -1052,7 +1054,7 @@ const receiving_curverid_bale_sequencing_model = new Table({
   scan_datetime: column.text,
   create_date: column.text,
   write_date: column.text
-}, { localOnly: true });
+});
 
 const receiving_boka_transporter_delivery_note_line = new Table({
   // Odoo model: receiving_boka.transporter_delivery_note_line
@@ -1063,6 +1065,7 @@ const receiving_boka_transporter_delivery_note_line = new Table({
   voucher: column.text,
   number_of_bales: column.integer,
   actual_bales_found: column.integer,
+  bales_difference: column.integer,
   physical_validation_status: column.text,
   validation_notes: column.text,
   preferred_sale_date: column.text, // Date
@@ -1155,6 +1158,32 @@ const receiving_ticket_printing_batch = new Table({
   write_date: column.text,
 });
 
+// Grower bookings for TIMB
+const receiving_grower_bookings = new Table({
+  // Odoo model: receiving.grower_bookings
+  grower_number: column.text,
+  number_of_bales: column.integer,
+  state: column.text, // 'open' or 'closed'
+  sale_date: column.text, // Date
+  grower_id: column.integer,
+  booked_at: column.text, // Datetime
+  selling_point_id: column.integer,
+  location_id: column.integer,
+  grower_delivery_note_id: column.integer, // Links to receiving_grower_delivery_note
+  grower_name: column.text,
+  is_reoffer: column.integer, // Boolean
+  status_message: column.text,
+  auto_booked: column.integer, // Boolean
+  season_id: column.integer,
+  active: column.integer, // Boolean
+  reference: column.text,
+  create_uid: column.integer,
+  write_uid: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+  has_been_booked: column.integer, // Boolean
+});
+
 
 export const AppSchema = new Schema({
   hr_employee,
@@ -1205,6 +1234,7 @@ export const AppSchema = new Schema({
   receiving_hessian,
   floor_maintenance_bale_location,
   receiving_ticket_printing_batch,
+  receiving_grower_bookings,
   sequencing_session_drafts
 });
 
@@ -1261,4 +1291,5 @@ export type SaleCodeRecord = Database['data_processing_salecode'];
 export type HessianRecord = Database['receiving_hessian'];
 export type BaleLocationRecord = Database['floor_maintenance_bale_location'];
 export type TicketPrintingBatchRecord = Database['receiving_ticket_printing_batch'];
+export type GrowerBookingsRecord = Database['receiving_grower_bookings'];
 export type SequencingSessionDraftRecord = Database['sequencing_session_drafts'];

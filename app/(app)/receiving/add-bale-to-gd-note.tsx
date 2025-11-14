@@ -416,65 +416,47 @@ export default function AddBaleToGDNoteScreen() {
       } catch (_e) {
         // ignore lookup errors
       }
+      const baleId = uuidv4();
+      const now = new Date().toISOString();
 
-      // Call the add-bale API instead of direct PowerSync insertion
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
-      
-      const response = await fetch(`${base(serverURL)}/api/fo/add-bale`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'X-FO-Token': token || '' 
-        },
-        body: JSON.stringify({
-          params: {
-            document_number: growerNote.document_number,
-            barcode: scaleBarcode,
-            lot_number: lotNumber,
-            group_number: groupNumber,
-            hessian_id: hessianIdToUse,
-            location_id: locationIdToUse
-          }
-        })
-      });
+      const baleData = {
+        id: baleId,
+        grower_delivery_note_id: growerNote.id,
+        document_number: growerNote.document_number,
+        scale_barcode: scaleBarcode,
+        barcode: scaleBarcode,
+        lot_number: lotNumber,
+        group_number: toInt(groupNumber),
+        hessian_id: hessianIdToUse,
+        location_id: locationIdToUse,
+        create_date: now,
+        write_date: now,
+        mass: 0,
+        state: 'open'
+      };
 
-      // Check if the HTTP request was successful
-      if (!response.ok) {
-        if (DEBUG_SAVE_LOGS) console.log('❌ HTTP Error:', response.status, response.statusText);
-        Alert.alert('Network Error', `Server returned ${response.status}: ${response.statusText}`);
-        return;
-      }
+      if (DEBUG_SAVE_LOGS) console.log('📦 Saving bale to PowerSync:', baleData);
 
-      const result = await response.json();
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Full API Response:', JSON.stringify(result, null, 2));
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Response type:', typeof result);
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Has result property:', 'result' in result);
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Has success property:', 'success' in result);
+      await powersync.execute(
+        'INSERT INTO receiving_bale (id, grower_delivery_note_id, document_number, scale_barcode, barcode, lot_number, group_number, hessian_id, location_id, create_date, write_date, mass, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          baleData.id,
+          baleData.grower_delivery_note_id,
+          baleData.document_number,
+          baleData.scale_barcode,
+          baleData.barcode,
+          baleData.lot_number,
+          baleData.group_number,
+          baleData.hessian_id,
+          baleData.location_id,
+          baleData.create_date,
+          baleData.write_date,
+          baleData.mass,
+          baleData.state
+        ]
+      );
       
-      // Handle both direct response and JSON-RPC wrapped response
-      const responseData = result.result || result;
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Response data:', responseData);
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Response data success:', responseData.success);
-      if (DEBUG_SAVE_LOGS) console.log('🔍 Response data message:', responseData.message);
-      
-      // Check for success in various possible response formats
-      const isSuccess = responseData.success === true || responseData.success === 'true' || 
-                       (responseData.result && responseData.result.success === true) ||
-                       (result && result.success === true);
-      
-      if (!isSuccess) {
-        const errorMessage = responseData.message || responseData.error || result.message || 'Failed to add bale';
-        if (DEBUG_SAVE_LOGS) console.log('❌ API call failed:', errorMessage);
-        Alert.alert('Error', errorMessage);
-        return;
-      }
-      
-      if (DEBUG_SAVE_LOGS) console.log('✅ API call successful:', responseData.message);
-
-      // Show success message with API response details
-      const successMessage = responseData.message || 'Bale saved successfully.';
+      const successMessage = `Bale ${scaleBarcode} saved locally.`;
       Alert.alert('Success', successMessage);
 
       // Clear form fields
@@ -556,7 +538,52 @@ export default function AddBaleToGDNoteScreen() {
   const handleCloseDelivery = async () => {
     if (!growerNote) return;
     
-    // Check state first (matches Odoo visibility condition)
+    // Local validation 1: Check if delivery note has been booked
+    // Query receiving_grower_bookings table to check if has_been_booked = 1 using grower number
+    let hasBeenBooked = false;
+    
+    // First check if has_been_booked is set on the delivery note itself
+    if (growerNote.has_been_booked === 1) {
+      hasBeenBooked = true;
+    } else if (growerNote.grower_number) {
+      // If not booked via delivery note field, check receiving_grower_bookings table
+      try {
+        // Query receiving_grower_bookings table to check if has_been_booked = 1 for this grower
+        const booking = await powersync.get<any>(
+          `SELECT has_been_booked FROM receiving_grower_bookings WHERE grower_number = ? AND has_been_booked = 1 LIMIT 1`,
+          [growerNote.grower_number]
+        );
+        
+        if (booking && booking.has_been_booked === 1) {
+          hasBeenBooked = true;
+          console.log(`📋 Booking found in receiving_grower_bookings - has_been_booked: ${booking.has_been_booked} (BOOKED) for grower ${growerNote.grower_number}`);
+        } else {
+          console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${growerNote.grower_number}`);
+        }
+      } catch (bookingError: any) {
+        // PowerSync's get() throws "Result set is empty" when no record found - this is expected
+        if (bookingError?.message?.includes('empty') || bookingError?.message?.includes('Result set')) {
+          // This is normal - no booking record exists or has_been_booked is not 1
+          console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${growerNote.grower_number}`);
+        } else {
+          // Actual error occurred
+          console.warn('⚠️ Failed to check receiving_grower_bookings:', bookingError);
+        }
+      }
+    } else {
+      console.log(`📋 No grower_number found for delivery note ${growerNote.document_number}, cannot check booking status`);
+    }
+    
+    console.log(`📋 Booking status check - has_been_booked: ${growerNote.has_been_booked} (type: ${typeof growerNote.has_been_booked}), isBooked: ${hasBeenBooked}`);
+    if (!hasBeenBooked) {
+      Alert.alert(
+        'Cannot Close', 
+        `Delivery note ${growerNote.document_number} must be booked before it can be closed.\n\nPlease ensure the delivery note has been booked first.`
+      );
+      return;
+    }
+    
+    // Local validation 2: Check state (matches Odoo visibility condition)
     if (growerNote.state === 'hold') {
       Alert.alert(
         'Validation Error',
@@ -573,9 +600,10 @@ export default function AddBaleToGDNoteScreen() {
       return;
     }
     
+    // Local validation 3: Validate that all expected bales are scanned
     const expected = growerNote.number_of_bales_delivered || 0;
     const scanned = growerNote.number_of_bales || 0;
-    if (scanned !== expected) {
+    if (scanned < expected) {
       Alert.alert(
         'Validation Error',
         `Cannot close delivery note: Only scanned ${scanned} out of ${expected} expected bales`
@@ -586,56 +614,16 @@ export default function AddBaleToGDNoteScreen() {
     try {
       setIsClosing(true);
       
-      // Call the close delivery note API instead of direct PowerSync update
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
+      // Update the state locally and let PowerSync handle the sync
+      await powersync.execute(
+        'UPDATE receiving_grower_delivery_note SET state = ? WHERE id = ?',
+        ['checked', growerNote.id]
+      );
       
-      console.log('🔍 Closing delivery note:', growerNote.document_number);
-      
-      const response = await fetch(`${base(serverURL)}/api/fo/receiving/close_delivery_note`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'X-FO-Token': token || '' 
-        },
-        body: JSON.stringify({
-          params: {
-            document_number: growerNote.document_number
-          }
-        })
-      });
-
-      // Check if the HTTP request was successful
-      if (!response.ok) {
-        // silently ignore HTTP error log; Alert is shown
-        Alert.alert('Network Error', `Server returned ${response.status}: ${response.statusText}`);
-        return;
-      }
-
-      const result = await response.json();
-      console.log('🔍 Close delivery API Response:', result);
-      
-      // Handle both direct response and JSON-RPC wrapped response
-      const responseData = result.result || result;
-      console.log('🔍 Response data:', responseData);
-      
-      // Check for success in various possible response formats
-      const isSuccess = responseData.success === true || responseData.success === 'true' || 
-                       (responseData.result && responseData.result.success === true) ||
-                       (result && result.success === true);
-      
-      if (!isSuccess) {
-        const errorMessage = responseData.message || responseData.error || result.message || 'Failed to close delivery note';
-        console.log('❌ Close delivery failed:', errorMessage);
-        Alert.alert('Error', errorMessage);
-        return;
-      }
-      
-      console.log('✅ Delivery note closed successfully:', responseData.message);
+      console.log('✅ Delivery note closed successfully locally:', growerNote.document_number);
       
       // Show acknowledgement only
-      const successMessage = responseData.message || 'Delivery note closed successfully.';
+      const successMessage = `Delivery note ${growerNote.document_number} marked for closing.`;
       Alert.alert('Success', successMessage, [{ text: 'OK' }]);
       
       // Trigger PowerSync refresh to get the updated state
@@ -690,7 +678,11 @@ export default function AddBaleToGDNoteScreen() {
       className="flex-1 bg-[#65435C]"
     >
       <Stack.Screen options={{title: 'Add Bale to GD Note', headerShown: true }} />
-      <ScrollView className="flex-1 bg-white rounded-2xl p-5 m-4">
+      <ScrollView 
+        className="flex-1 bg-white rounded-2xl p-5 m-4"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         <Text className="text-xl font-bold text-[#65435C] mb-4">Find Grower Delivery Note</Text>
 
         <View className="flex-row mb-5">

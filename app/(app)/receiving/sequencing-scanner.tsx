@@ -32,7 +32,9 @@ import { Barcode, Search, CheckCircle, XCircle } from 'lucide-react-native';
 import { Picker } from '@react-native-picker/picker';
 import { powersync } from '@/powersync/system';
 import { SellingPointRecord, FloorSaleRecord } from '@/powersync/Schema';
-import * as SecureStore from 'expo-secure-store';
+import 'react-native-get-random-values';
+import { v4 as uuid } from 'uuid';
+
 
 // Form components with proper TypeScript types
 const FormInput = ({ label, value, onChangeText, placeholder }: {
@@ -197,64 +199,32 @@ const SequencingScannerScreen = () => {
       Alert.alert('Missing Barcode', 'Scan or enter a bale barcode.');
       return;
     }
-
+  
     setIsProcessing(true);
     try {
-      // Call the integrated sequencing scan API
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const token = await SecureStore.getItemAsync('odoo_custom_session_id');
-      const base = (url: string | null) => !url ? '' : (url.startsWith('http') ? url : `https://${url}`);
-      
-      const response = await fetch(`${base(serverURL)}/api/fo/receiving/sequencing_scan`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'X-FO-Token': token || '' 
-        },
-        body: JSON.stringify({
-          params: {
-            scale_barcode: scaleBarcode,
-            row: row,
-            selling_point_id: selectedSellingPoint,
-            floor_sale_id: selectedFloorSale
-          }
-        })
-      });
-
-      const result = await response.json();
-      
-      if (!result.success) {
-        Alert.alert('Scan Failed', result.message || 'Failed to scan bale');
-        setResultMessage(result.message || 'Scan failed');
-        setIsError(true);
-        return;
-      }
-
-      // Update UI with scan results
-      setScanInfo({
-        grower_number: result.bale_info.grower_number,
-        grower_name: result.bale_info.grower_name,
-        lot_number: result.bale_info.lot_number,
-        group_number: result.bale_info.group_number,
-        total_delivered: result.bale_info.total_delivered,
-        total_scanned: result.bale_info.total_scanned,
-      });
-
-      setResultMessage(result.message);
+      const newRecord = {
+        id: uuid(),
+        scale_barcode: scaleBarcode,
+        row: row,
+        selling_point_id: selectedSellingPoint,
+        floor_sale_id: selectedFloorSale,
+        created_at: new Date().toISOString()
+      };
+  
+      await powersync.execute(
+        'INSERT INTO receiving_curverid_bale_sequencing_model (id, scale_barcode, row, selling_point_id, floor_sale_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [newRecord.id, newRecord.scale_barcode, newRecord.row, newRecord.selling_point_id, newRecord.floor_sale_id, newRecord.created_at]
+      );
+  
+      // Since we don't get immediate feedback from the server, we'll just show a success message
+      // The UI can be updated based on local data if needed
+      setResultMessage('Bale queued for sequencing successfully.');
       setIsError(false);
-
+  
       // Clear barcode for next scan
       setScaleBarcode('');
       setLastScannedBarcode(null);
-
-      // Show completion alert if delivery is completed
-      if (result.delivery_completed) {
-        Alert.alert(
-          '🎉 Delivery Completed!', 
-          `All ${result.bale_info.total_delivered} bales have been scanned. ${result.ticket_created ? 'Ticket printing batch created.' : ''}`
-        );
-      }
-
+  
     } catch (error) {
       console.error('Sequencing scan error:', error);
       Alert.alert('Error', 'Failed to process bale scan');

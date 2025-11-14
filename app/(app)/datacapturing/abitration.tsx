@@ -1,9 +1,8 @@
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, Keyboard, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Alert, Keyboard } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Scan } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
-import { updateBaleDataAPI } from '@/api/odoo_api';
 
 interface BaleData {
   id: string;
@@ -138,38 +137,122 @@ const AbitrationScreen = () => {
 
   const handleSave = async () => {
     if (!baleData) return;
+    Keyboard.dismiss();
     setIsSaving(true);
     setError(null);
     setSuccessMessage(null);
   
     try {
-      const updates = {
-        timb_grade: formState.timbGrade,
-        buyer: formState.buyer,
-        buyer_grade: formState.buyerGrade,
-        price: formState.price,
-        salecode_id: formState.saleCode,
-        hessian: formState.hessian,
-        lot_number: formState.lotNumber,
-        group_number: formState.groupNumber
-      };
-      
-      const response = await updateBaleDataAPI(baleData.barcode, updates);
+      // Resolve names/codes to IDs
+      let timbGradeId: number | null = null;
+      let buyerId: number | null = null;
+      let buyerGradeId: number | null = null;
+      let salecodeId: number | null = null;
+      let hessianId: number | null = null;
 
-      if (response.data.result && response.data.result.success) {
-        setSuccessMessage(response.data.result.message || 'Abitration details saved successfully!');
-        
-        setTimeout(() => {
-            fetchBaleData(baleData.barcode);
-            setSuccessMessage(null);
-        }, 1500);
-      } else {
-        const errorList = response.data.result.errors || [];
-        throw new Error(response.data.result.message || errorList.join(', ') || 'An unknown error occurred.');
+      // Resolve TIMB Grade
+      if (formState.timbGrade) {
+        const timbGrade = await powersync.get<any>(
+          'SELECT id FROM floor_maintenance_timb_grade WHERE name = ? LIMIT 1',
+          [formState.timbGrade.toUpperCase()]
+        );
+        if (timbGrade) {
+          timbGradeId = timbGrade.id;
+        } else {
+          throw new Error(`TIMB Grade "${formState.timbGrade}" not found locally. Please sync the app.`);
+        }
       }
-  
+
+      // Resolve Buyer
+      if (formState.buyer) {
+        const buyer = await powersync.get<any>(
+          'SELECT id FROM buyers_buyer WHERE buyer_code = ? LIMIT 1',
+          [formState.buyer.toUpperCase()]
+        );
+        if (buyer) {
+          buyerId = buyer.id;
+        } else {
+          throw new Error(`Buyer "${formState.buyer}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Buyer Grade (depends on buyer)
+      if (formState.buyerGrade && buyerId) {
+        const buyerGrade = await powersync.get<any>(
+          'SELECT id FROM buyers_grade WHERE grade = ? AND buyer = ? LIMIT 1',
+          [formState.buyerGrade.toUpperCase(), buyerId]
+        );
+        if (buyerGrade) {
+          buyerGradeId = buyerGrade.id;
+        } else {
+          throw new Error(`Buyer Grade "${formState.buyerGrade}" not found for buyer "${formState.buyer}". Please sync the app.`);
+        }
+      } else if (formState.buyerGrade && !buyerId) {
+        throw new Error('Cannot set Buyer Grade without a valid Buyer.');
+      }
+
+      // Resolve Sale Code
+      if (formState.saleCode) {
+        const salecode = await powersync.get<any>(
+          'SELECT id FROM data_processing_salecode WHERE name = ? LIMIT 1',
+          [formState.saleCode.toUpperCase()]
+        );
+        if (salecode) {
+          salecodeId = salecode.id;
+        } else {
+          throw new Error(`Sale Code "${formState.saleCode}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Resolve Hessian
+      if (formState.hessian) {
+        const hessian = await powersync.get<any>(
+          'SELECT id FROM receiving_hessian WHERE name = ? LIMIT 1',
+          [formState.hessian]
+        );
+        if (hessian) {
+          hessianId = hessian.id;
+        } else {
+          throw new Error(`Hessian "${formState.hessian}" not found locally. Please sync the app.`);
+        }
+      }
+
+      // Update the bale with resolved IDs
+      await powersync.execute(
+        `UPDATE receiving_bale SET
+          timb_grade = ?,
+          buyer = ?,
+          buyer_grade = ?,
+          price = ?,
+          salecode_id = ?,
+          hessian = ?,
+          lot_number = ?,
+          group_number = ?,
+          write_date = ?
+        WHERE id = ?`,
+        [
+          timbGradeId,
+          buyerId,
+          buyerGradeId,
+          formState.price ? parseFloat(formState.price) : null,
+          salecodeId,
+          hessianId,
+          formState.lotNumber || null,
+          formState.groupNumber ? parseInt(formState.groupNumber, 10) : null,
+          new Date().toISOString(),
+          baleData.id
+        ]
+      );
+      
+      setSuccessMessage('Abitration details saved locally. Will sync to server.');
+      
+      setTimeout(() => {
+          fetchBaleData(baleData.barcode);
+          setSuccessMessage(null);
+      }, 1500);
+
     } catch (e: any) {
-      const errorMessage = e.response?.data?.error?.data?.message || e.message || 'An error occurred while saving.';
+      const errorMessage = e.message || 'An error occurred while saving.';
       Alert.alert('Error', `Failed to save details: ${errorMessage}`);
       setError(errorMessage);
     } finally {

@@ -18,7 +18,12 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     // setTheme(R.style.AppTheme);
     // @generated begin expo-splashscreen - expo prebuild (DO NOT MODIFY) sync-f3ff59a738c56c9a6119210cb55f0b613eb8b6af
-    SplashScreenManager.registerOnActivity(this)
+    try {
+      SplashScreenManager.registerOnActivity(this)
+    } catch (e: Exception) {
+      // Handle case where splash screen module is not available
+      android.util.Log.e("MainActivity", "Failed to register splash screen", e)
+    }
     // @generated end expo-splashscreen
     super.onCreate(null)
   }

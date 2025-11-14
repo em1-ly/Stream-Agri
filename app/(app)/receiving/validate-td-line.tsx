@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { powersync } from '@/powersync/system';
-import * as SecureStore from 'expo-secure-store';
+import { powersync, connectorInstance } from '@/powersync/system';
 
 type TDLine = {
   id: string;
@@ -12,6 +11,7 @@ type TDLine = {
   location_id?: number;
   number_of_bales?: number;
   actual_bales_found?: number;
+  bales_difference?: number;
   physical_validation_status?: string;
   validation_notes?: string;
 };
@@ -30,6 +30,7 @@ export default function ValidateTDLineScreen() {
   const [actual, setActual] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
+  const [validating, setValidating] = useState(false);
   const isValidated = line?.physical_validation_status === 'validated';
   const [header, setHeader] = useState<TDNoteHeader | null>(null);
 
@@ -69,95 +70,139 @@ export default function ValidateTDLineScreen() {
 
   const handleValidate = async () => {
     if (!line) return;
-    if ((header?.state || '').toLowerCase() !== 'checked') {
-      Alert.alert('Not Booked', 'Validation is only allowed when the delivery note is Booked.');
+
+    // ===== ALL VALIDATIONS ARE LOCAL - NO SERVER CALLS =====
+    
+    // Local validation 1: Check if line exists
+    if (!line.id) {
+      Alert.alert('Error', 'Line ID is missing. Cannot validate.');
       return;
     }
-    // Enforce exact match (Odoo wizard requires exact physical count)
-    const expected = line.number_of_bales || 0;
-    const actualCount = parseInt(actual || '0', 10);
+
+    // Local validation 2: Check header state (must be 'checked')
+    const headerState = (header?.state || '').toLowerCase();
+    if (headerState !== 'checked') {
+      Alert.alert('Cannot Validate', 'Validation is only allowed when the delivery note is in "checked" state. Please ensure the delivery note is checked first.');
+      return;
+    }
+
+    // Local validation 3: Check if already validated (idempotency)
+    if (line.physical_validation_status === 'validated') {
+      Alert.alert('Already Validated', 'This line has already been validated. No changes needed.');
+      return;
+    }
+
+    // Local validation 4: Validate actual bales input (required, non-negative integer)
+    if (!actual || actual.trim() === '') {
+      Alert.alert('Input Required', 'Please enter the actual number of bales found.');
+      return;
+    }
+
+    const actualCount = parseInt(actual.trim(), 10);
     if (isNaN(actualCount)) {
-      Alert.alert('Invalid', 'Actual bales must be a number');
+      Alert.alert('Invalid Input', 'Actual bales must be a valid number.');
       return;
     }
+
+    if (actualCount < 0) {
+      Alert.alert('Invalid Input', 'Physical bales count cannot be negative.');
+      return;
+    }
+
+    // Local validation 5: Ensure expected bales is valid
+    const expected = line.number_of_bales || 0;
+    if (expected < 0) {
+      Alert.alert('Data Error', 'Expected bales count is invalid. Please contact support.');
+      return;
+    }
+
+    // Local validation 6: Require exact match - expected must equal actual
     if (actualCount !== expected) {
-      Alert.alert('Mismatch', `Expected ${expected} bales, but found ${actualCount}. Please correct to proceed.`);
+      Alert.alert(
+        'Validation Failed', 
+        `Expected bales (${expected}) must equal actual bales found (${actualCount}).\n\nPlease correct the count to match the expected value.`
+      );
       return;
     }
 
-    const status = 'validated';
+    // Calculate bales difference locally (should always be 0 if validation passes)
+    const balesDifference = actualCount - expected;
 
-  try {
-      // API-first: call backend endpoint that runs the Odoo validation wizard flow
-      // Match Connector.ts: read base URL and token from SecureStore and normalize
-      const serverURL = await SecureStore.getItemAsync('odoo_server_ip');
-      const foToken = await SecureStore.getItemAsync('odoo_custom_session_id');
-      const normalizeServerUrl = (url: string | null): string => {
-        if (!url) return '';
-        if (url.startsWith('http://') || url.startsWith('https://')) return url;
-        return `https://${url}`;
-      };
-      const apiBase = normalizeServerUrl(serverURL);
-      if (!apiBase || !foToken) {
-        Alert.alert('Error', 'Missing API base or session token. Please login again.');
-        return;
-      }
-      const payload = {
-        line_id: Number(line.id) || line.id,
-        physical_bales: actualCount,
-        notes,
-      };
-      const url = `${apiBase.replace(/\/$/, '')}/api/fo/receiving/td_line/validate`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-FO-TOKEN': foToken },
-        body: JSON.stringify(payload)
-      });
-      console.log('[TD Validate] Request URL:', url);
-      console.log('[TD Validate] Payload:', payload);
-      console.log('[TD Validate] Response status:', res.status, 'content-type:', res.headers.get('content-type'));
-      const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      let body: any = null;
-      if (contentType.includes('application/json')) {
-        try { body = await res.json(); } catch (e) { body = null; console.warn('[TD Validate] JSON parse failed:', e); }
-        console.log('[TD Validate] JSON body:', body);
-      } else if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.warn('[TD Validate] Non-JSON error body:', text);
-        Alert.alert('Validation failed', text || `HTTP ${res.status}`);
-        return;
-      }
-      if (!res.ok || (body && (body.success === false || body.ok === false))) {
-        Alert.alert('Validation failed', (body && (body.error || body.message)) || `HTTP ${res.status}`);
-        return;
-      }
+    // Save original line for error recovery
+    const originalLine = line;
 
-      // Mirror minimal fields locally for instant UI
-      console.log('[TD Validate] Mirroring local line:', line.id);
-      await powersync.execute(
-        'UPDATE receiving_boka_transporter_delivery_note_line SET actual_bales_found = ?, physical_validation_status = ?, validation_notes = ?, grower_delivery_note_id = COALESCE(?, grower_delivery_note_id), write_date = ? WHERE id = ?',
-        [
-          actualCount,
-          'validated',
-          notes,
-          body?.line?.grower_delivery_note_id ?? null,
-          new Date().toISOString(),
-          line.id
-        ]
-      );
-      console.log('[TD Validate] Local mirror done for line:', line.id);
-      // Reflect validated state locally and keep user on the screen
-      setLine({
-        ...(line as TDLine),
-        actual_bales_found: actualCount,
-        physical_validation_status: status,
-        validation_notes: notes,
-      });
-      Alert.alert('Success', 'Line validated');
-    } catch (e) {
-      console.error('Failed to validate line', e);
-      Alert.alert('Error', 'Failed to validate line');
-    }
+    // Set validating state to disable button and show loading
+    setValidating(true);
+
+    // ===== OPTIMISTIC UPDATE: Update UI immediately for instant feedback =====
+    const updatedLine: TDLine = {
+      ...(line as TDLine),
+      actual_bales_found: actualCount,
+      validation_notes: notes?.trim() || undefined,
+      bales_difference: balesDifference,
+      physical_validation_status: 'validated',
+    };
+    setLine(updatedLine);
+
+    // Show success message immediately
+    Alert.alert(
+      '✓ Validated Successfully', 
+      `Line validated successfully.\n\nExpected: ${expected} bales\nFound: ${actualCount} bales\nMatch: ✓\n\n`,
+      [{ text: 'OK', onPress: () => router.back() }]
+    );
+
+    // ===== BACKGROUND: Save to database and trigger sync (fire and forget) =====
+    // This runs in the background so the UI feels instant
+    (async () => {
+      try {
+        const writeDate = new Date().toISOString();
+        console.log('📝 Updating TD line locally:', {
+          id: originalLine.id,
+          actual_bales_found: actualCount,
+          validation_notes: notes?.trim() || null,
+          bales_difference: balesDifference,
+          physical_validation_status: 'validated'
+        });
+        
+        await powersync.execute(
+          `UPDATE receiving_boka_transporter_delivery_note_line 
+           SET actual_bales_found = ?, 
+               validation_notes = ?, 
+               bales_difference = ?,
+               physical_validation_status = 'validated',
+               write_date = ? 
+           WHERE id = ?`,
+          [actualCount, notes?.trim() || null, balesDifference, writeDate, originalLine.id]
+        );
+        
+        console.log('✅ Local UPDATE completed - PowerSync should detect this change');
+
+        // Trigger sync in background (non-blocking)
+        setTimeout(async () => {
+          try {
+            const transaction = await (powersync as any).getNextCrudTransaction?.();
+            if (transaction && connectorInstance && typeof connectorInstance.uploadData === 'function') {
+              console.log(`✅ PowerSync detected pending transaction with ${transaction.crud?.length || 0} operations`);
+              console.log('🔄 Manually triggering uploadData...');
+              await connectorInstance.uploadData(powersync);
+              console.log('✅ uploadData completed');
+            }
+          } catch (syncError) {
+            console.warn('⚠️ Error during background sync:', syncError);
+            // Don't show error to user - PowerSync will retry automatically
+          }
+        }, 300);
+      } catch (e: any) {
+        console.error('Failed to validate line locally', e);
+        // Revert optimistic update on error
+        setLine(originalLine);
+        setValidating(false);
+        const errorMessage = e?.message || 'An unknown error occurred during validation.';
+        Alert.alert('Validation Error', `Failed to save validation :\n${errorMessage}\n\nPlease try again.`);
+      } finally {
+        setValidating(false);
+      }
+    })();
   };
 
   return (
@@ -189,8 +234,17 @@ export default function ValidateTDLineScreen() {
               className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
               keyboardType="number-pad"
               onChangeText={setActual}
-              editable={!isValidated}
+              editable={!isValidated && !validating}
+              placeholder="Enter actual bales found"
             />
+            {actual && !isNaN(parseInt(actual, 10)) && (
+              <Text className="text-sm mt-1 text-gray-600">
+                Difference: {parseInt(actual, 10) - (line.number_of_bales || 0)} bales
+                {parseInt(actual, 10) - (line.number_of_bales || 0) > 0 && ' (extra)'}
+                {parseInt(actual, 10) - (line.number_of_bales || 0) < 0 && ' (missing)'}
+                {parseInt(actual, 10) - (line.number_of_bales || 0) === 0 && ' (match)'}
+              </Text>
+            )}
           </View>
 
           <View className="mb-6">
@@ -206,13 +260,17 @@ export default function ValidateTDLineScreen() {
           </View>
 
           <TouchableOpacity
-            className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
+            className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
             onPress={handleValidate}
-            disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked'}
+            disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating}
           >
-            <Text className="text-white font-bold">
-              {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
-            </Text>
+            {validating ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text className="text-white font-bold">
+                {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
+              </Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       )}

@@ -11,4 +11,8 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# expo-splash-screen
+-keep class expo.modules.splashscreen.** { *; }
+-dontwarn expo.modules.splashscreen.**
+
 # Add any project specific keep options here:

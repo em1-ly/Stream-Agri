@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Scan, ChevronDown } from 'lucide-react-native';
 import { powersync } from '@/powersync/system';
-import { updateBaleDataAPI } from '@/api/odoo_api';
+
+// Toggle to enable/disable verbose logs for the save bale flow
+const DEBUG_SAVE_LOGS = false;
 
 interface BaleData {
   id: string;
@@ -174,7 +176,7 @@ const ClassificationScreen = () => {
         );
         setTimbGrades(gradesResult || []);
       } catch (e) {
-        console.error('Failed to load TIMB grades:', e);
+        if (DEBUG_SAVE_LOGS) console.error('Failed to load TIMB grades:', e);
       }
     };
     loadTimbGrades();
@@ -229,7 +231,7 @@ const ClassificationScreen = () => {
       }
     } catch (e) {
       const error = e as Error;
-      console.error('Failed to fetch bale data:', error);
+      if (DEBUG_SAVE_LOGS) console.error('Failed to fetch bale data:', error);
       Alert.alert('Error', `Failed to fetch bale data: ${error.message}`);
       setError('An error occurred while fetching bale data.');
     } finally {
@@ -248,23 +250,29 @@ const ClassificationScreen = () => {
     setSuccessMessage(null);
 
     try {
-      const updates = { timb_grade: timbGrade };
-      const response = await updateBaleDataAPI(baleData.barcode, updates);
-
-      if (response.data.result && response.data.result.success) {
-        setSuccessMessage(response.data.result.message || 'TIMB Grade saved successfully!');
-        
-        // Clear barcode and reset state after successful save
-        setTimeout(() => {
-            resetState(); // Clear barcode and all state
-            setSuccessMessage(null);
-        }, 1500);
-
-      } else {
-        throw new Error(response.data.result.message || 'An unknown error occurred.');
+      // Find the ID for the selected TIMB grade name
+      const selectedGrade = timbGrades.find(g => g.name === timbGrade);
+      if (!selectedGrade) {
+        throw new Error(`TIMB Grade "${timbGrade}" not found locally. Please sync the app.`);
       }
+      
+      const timbGradeId = selectedGrade.id;
+
+      await powersync.execute(
+        'UPDATE receiving_bale SET timb_grade = ?, write_date = ? WHERE id = ?',
+        [timbGradeId, new Date().toISOString(), baleData.id]
+      );
+
+      setSuccessMessage('TIMB Grade saved locally. It will be synced to the server.');
+        
+      // Clear barcode and reset state after successful save
+      setTimeout(() => {
+          resetState(); // Clear barcode and all state
+          setSuccessMessage(null);
+      }, 1500);
+
     } catch (e: any) {
-        const errorMessage = e.response?.data?.error?.data?.message || e.message || 'An error occurred while saving the grade.';
+        const errorMessage = e.message || 'An error occurred while saving the grade.';
         Alert.alert('Error', `Failed to save TIMB grade: ${errorMessage}`);
         setError(errorMessage);
     } finally {
@@ -338,6 +346,16 @@ const ClassificationScreen = () => {
                   displayField="name"
                   onSelect={(item) => setTimbGrade(item.name)}
                 />
+                
+                <View className="mb-3" />
+                
+                <Text className="font-semibold text-gray-600 mb-1">Classifier Number</Text>
+                <TextInput 
+                  className="border border-gray-300 rounded-md p-2" 
+                  placeholder="Classifier Number" 
+                  autoCapitalize="characters"
+                />
+                
                 <View className="mb-4" />
                 <TouchableOpacity 
                     onPress={handleSave} 

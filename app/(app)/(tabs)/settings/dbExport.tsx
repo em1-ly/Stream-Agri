@@ -6,7 +6,7 @@ import { useSession } from '@/authContext'
 import { EXPORT_TABLES, exportTableToCSV, shareCSVFile, exportAllTables } from '@/utils/exportUtils'
 import { forceRunImageUploadService } from '@/utils/imageUploadService'
 import { SignaturePad } from '@/components/SignaturePad'
-import { powersync } from '@/powersync/system'
+import { powersync } from '@/powersync/setup'
 
 const DBExport = () => {
   const [exporting, setExporting] = useState<string | null>(null)

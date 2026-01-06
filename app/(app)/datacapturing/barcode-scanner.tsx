@@ -102,12 +102,13 @@ export default function BarcodeScannerScreen() {
 
     setScanned(true);
 
+    // Return immediately after showing the barcode briefly
     setTimeout(() => {
       router.replace({
-        pathname: returnTo,
+        pathname: returnTo as any,
         params: { scannedBarcode: normalized }
       });
-    }, 1000);
+    }, 200);
   };
 
   if (hasPermission === null) {
@@ -138,6 +139,31 @@ export default function BarcodeScannerScreen() {
   return (
     <View className="flex-1 bg-black">
       <Stack.Screen options={{ headerShown: false }} />
+      
+      {/* Header - Solid black to match receiving component exactly */}
+      <View className="h-24 bg-black flex-row items-center justify-between px-5 pt-10 z-50">
+        <TouchableOpacity 
+          className="bg-gray-800 rounded-full p-2.5" 
+          onPress={() => router.back()}
+        >
+          <ArrowLeft color="white" size={24} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          className="bg-gray-800 rounded-full p-2.5"
+          onPress={toggleTorch}
+        >
+          {torchOn ? <FlashlightOff color="white" size={24} /> : <Flashlight color="white" size={24} />}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          className="bg-gray-800 rounded-full p-2.5" 
+          onPress={() => router.back()}
+        >
+          <X color="white" size={24} />
+        </TouchableOpacity>
+      </View>
+
       <CameraView
         ref={cameraRef}
         style={{ flex: 1 }}
@@ -149,31 +175,64 @@ export default function BarcodeScannerScreen() {
         }}
       >
         <View className="flex-1">
-          <View className="absolute" style={{ top: 0, left: 0, right: 0, height: '25%', backgroundColor: 'rgba(0,0,0,0.7)' }} />
-          <View className="absolute" style={{ bottom: 0, left: 0, right: 0, height: '25%', backgroundColor: 'rgba(0,0,0,0.7)' }} />
-          <View className="absolute" style={{ left: 0, top: '25%', bottom: '25%', width: '10%', backgroundColor: 'rgba(0,0,0,0.7)' }} />
-          <View className="absolute" style={{ right: 0, top: '25%', bottom: '25%', width: '10%', backgroundColor: 'rgba(0,0,0,0.7)' }} />
+          {/* Darkened surrounding overlays - Solid black opacity */}
+          <View className="absolute inset-0">
+            {/* Dark top bar */}
+            <View 
+              className="absolute" 
+              style={{ 
+                top: 0, 
+                left: 0, 
+                right: 0, 
+                height: '25%',
+                backgroundColor: 'black'
+              }} 
+            />
+            
+            {/* Dark bottom bar */}
+            <View 
+              className="absolute" 
+              style={{ 
+                bottom: 0, 
+                left: 0, 
+                right: 0, 
+                height: '25%',
+                backgroundColor: 'black'
+              }} 
+            />
+            
+            {/* Dark left bar */}
+            <View 
+              className="absolute" 
+              style={{ 
+                left: 0, 
+                top: '25%', 
+                bottom: '25%',
+                width: '18%',
+                backgroundColor: 'black'
+              }} 
+            />
+            
+            {/* Dark right bar */}
+            <View 
+              className="absolute" 
+              style={{ 
+                right: 0, 
+                top: '25%', 
+                bottom: '25%',
+                width: '18%',
+                backgroundColor: 'black'
+              }} 
+            />
+          </View>
 
-          {/* Controls */}
-          <TouchableOpacity className="absolute top-14 left-5 bg-black/50 rounded-full p-3 z-10" onPress={() => router.back()}>
-            <ArrowLeft color="white" size={24} />
-          </TouchableOpacity>
-          <TouchableOpacity className="absolute top-14 right-5 bg-black/50 rounded-full p-3 z-10" onPress={() => router.back()}>
-            <X color="white" size={24} />
-          </TouchableOpacity>
-          <TouchableOpacity className="absolute top-14 left-1/2" style={{ transform: [{ translateX: -24 }] }} onPress={toggleTorch}>
-             <View className="bg-black/50 rounded-full p-3 z-10">
-                {torchOn ? <FlashlightOff color="white" size={24} /> : <Flashlight color="white" size={24} />}
-             </View>
-          </TouchableOpacity>
-
-          {/* Scanning frame */}
+          {/* Scanning frame - Centered within the clear area */}
           <View className="flex-1 items-center justify-center z-10">
             <View className="w-72 h-72 border-2 border-white rounded-lg relative">
-              <View className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-[#65435C]" />
-              <View className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-[#65435C]" />
-              <View className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-[#65435C]" />
-              <View className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-[#65435C]" />
+              <View className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#65435C]" />
+              <View className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#65435C]" />
+              <View className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#65435C]" />
+              <View className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#65435C]" />
               
               {highlightedBarcode && (
                 <View className="absolute inset-0 bg-green-500/20 rounded-lg flex items-center justify-center">
@@ -190,23 +249,23 @@ export default function BarcodeScannerScreen() {
             {scanError && <Text className="text-red-400 text-lg mt-4 text-center px-5 font-bold">❌ {scanError}</Text>}
             {highlightedBarcode && !scanError && <Text className="text-green-400 text-sm mt-2 text-center px-5 font-semibold">✅ Valid barcode detected!</Text>}
           </View>
-
-          {scanned && (
-            <View className="absolute bottom-10 left-0 right-0 items-center">
-              <TouchableOpacity
-                className="bg-[#65435C] rounded-lg py-3 px-6"
-                onPress={() => {
-                  setScanned(false);
-                  setIsScanning(false);
-                  setHighlightedBarcode(null);
-                }}
-              >
-                <Text className="text-white font-bold">Tap to Scan Again</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       </CameraView>
+
+      {scanned && (
+        <View className="absolute bottom-10 left-0 right-0 items-center z-30">
+          <TouchableOpacity
+            className="bg-[#65435C] rounded-lg py-3 px-6"
+            onPress={() => {
+              setScanned(false);
+              setIsScanning(false);
+              setHighlightedBarcode(null);
+            }}
+          >
+            <Text className="text-white font-bold">Tap to Scan Again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }

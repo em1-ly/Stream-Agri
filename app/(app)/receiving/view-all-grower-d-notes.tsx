@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { router, Stack, useFocusEffect } from 'expo-router';
-import { CircleArrowRight, PlugZap, Search, Unplug, FilePlus } from 'lucide-react-native';
+import { CircleArrowRight, PlugZap, Search, Unplug, FilePlus, ChevronLeft } from 'lucide-react-native';
 import { FlashList } from '@shopify/flash-list';
-import { powersync, setupPowerSync } from '@/powersync/system';
+import { powersync, setupPowerSync } from '@/powersync/setup';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Define the type for a Grower Delivery Note.
 // Note the more detailed state type.
@@ -21,20 +22,26 @@ type GrowerDeliveryNote = {
 };
 
 const ViewAllGrowerDNotes = () => {
+  const insets = useSafeAreaInsets();
   const [deliveryNotes, setDeliveryNotes] = useState<GrowerDeliveryNote[]>([]);
   const [filteredNotes, setFilteredNotes] = useState<GrowerDeliveryNote[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [syncStatus, setSyncStatus] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(!!powersync.currentStatus?.connected);
 
-  // Set up PowerSync listener and refresh on focus
+  // Monitor PowerSync connection status
+  useEffect(() => {
+    const unregister = powersync.registerListener({
+      statusChanged: (status) => {
+        setSyncStatus(!!status.connected);
+      },
+    });
+    return unregister;
+  }, []);
+
+  // Refresh on focus
   useFocusEffect(
     useCallback(() => {
-      powersync.registerListener({
-        statusChanged: (status) => setSyncStatus(status.connected),
-      });
-      
-      // Trigger PowerSync sync when screen comes into focus to get latest data
       const refreshData = async () => {
         try {
           await powersync.execute('SELECT 1'); // Trigger sync
@@ -117,19 +124,57 @@ const ViewAllGrowerDNotes = () => {
     <>
       <Stack.Screen 
         options={{
-          title: 'View All Grower D Notes', 
-          headerShown: true,
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={handleRefresh}
-              className="mr-4 p-2"
-            >
-              <Text className="text-[#65435C] font-semibold text-lg">🔄</Text>
-            </TouchableOpacity>
-          )
+          headerShown: false,
         }} 
       />
-      <View className="flex-1 p-4 bg-[#65435C]">
+      <View className="flex-1 bg-[#65435C]">
+        {/* Custom header with back, refresh, and PowerSync status */}
+        <View style={{ backgroundColor: '#65435C', paddingTop: insets.top }}>
+          <View className="flex-row justify-between bg-white py-4 px-4">
+          <TouchableOpacity
+            className="flex-row items-center"
+            onPress={() => router.back()}
+          >
+            <ChevronLeft size={24} color="#65435C" />
+            <Text className="text-[#65435C] font-bold text-lg ml-2">
+              View All Grower D Notes
+            </Text>
+          </TouchableOpacity>
+          <View className="flex-row items-center gap-3">
+            {/* PowerSync status indicator */}
+            <View className="flex-row items-center">
+              <View
+                className={`h-2 w-2 rounded-full mr-1 ${
+                  syncStatus ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              <Text
+                className={`text-xs font-semibold ${
+                  syncStatus ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
+                {syncStatus ? 'Online' : 'Offline'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              className="px-3 py-1 rounded-full bg-[#65435C]/10"
+            >
+              <Text className="text-[#65435C] font-semibold text-base">🔄</Text>
+            </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Offline warning banner */}
+        {!syncStatus && (
+          <View className="mb-3 bg-yellow-100 border border-yellow-300 rounded-xl px-3 py-2">
+            <Text className="text-yellow-900 text-xs font-semibold">
+              PowerSync disconnected. You can still work offline; changes will sync when the network is restored.
+            </Text>
+          </View>
+        )}
+
         <View className="flex-row items-center justify-between gap-2 mb-4 h-14">
           <View className="relative w-[80%]">
             <View className="absolute left-3 top-4 z-10">

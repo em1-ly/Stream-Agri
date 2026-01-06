@@ -2,14 +2,15 @@ import { View, Text, TouchableOpacity, FlatList } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'expo-router';
 import { ChevronRight, Building } from 'lucide-react-native';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { ResCompanyRecord } from '@/powersync/Schema';
 
 const menuItems = [
   { id: '1', title: 'Classification', href: '/(app)/datacapturing/classification' },
   { id: '2', title: 'Buyer Details', href: '/(app)/datacapturing/buyer-details' },
-  { id: '3', title: 'Release', href: '/(app)/datacapturing/all-details' },
-  { id: '4', title: 'Arbitration', href: '/(app)/datacapturing/abitration' },
+  { id: '3', title: 'Arbitration', href: '/(app)/datacapturing/abitration' },
+  { id: '4', title: 'Release', href: '/(app)/datacapturing/all-details' },
+
 ];
 
 const MenuComponent = () => {

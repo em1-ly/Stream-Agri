@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Stack, Link } from 'expo-router';
 import { ChevronRight, Building } from 'lucide-react-native';
 import { useSession } from '@/authContext';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { ResCompanyRecord } from '@/powersync/Schema';
 
 const menuItems = [

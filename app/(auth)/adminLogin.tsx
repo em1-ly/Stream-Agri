@@ -1,14 +1,14 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Button, TextInput, ActivityIndicator, Alert } from "react-native"
+import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Button, TextInput, ActivityIndicator, Alert, Keyboard } from "react-native"
 import {Image} from "expo-image"
 import { Eye, EyeOff, Mail, Lock, Settings, Database } from "lucide-react-native"
 import { useSession } from "@/authContext"
 import { useFocusEffect, useRouter } from "expo-router"
 import * as SecureStore from 'expo-secure-store';
 import axios from "axios";
-import { powersync } from "@/powersync/system";
+import { powersync } from "@/powersync/setup";
 
 
 interface LoginScreenProps {
@@ -59,6 +59,28 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
   }, []);
 
   const [syncStatus, setSyncStatus] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -109,11 +131,23 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
 
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : undefined} 
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
       <ScrollView
-        className="flex-1 px-6"
-        contentContainerClassName="flex-grow justify-center"
-        showsVerticalScrollIndicator={false}
+        style={{ flex: 1, paddingHorizontal: 24 }}
+        contentContainerStyle={isKeyboardVisible ? {
+          paddingVertical: 40,
+          paddingBottom: 400
+        } : {
+          flexGrow: 1,
+          justifyContent: 'center',
+          paddingVertical: 20
+        }}
+        scrollEnabled={isKeyboardVisible}
+        showsVerticalScrollIndicator={isKeyboardVisible}
         keyboardShouldPersistTaps="handled"
       >
         <View className="items-center mb-10 mt-10">
@@ -143,7 +177,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={serverIP} 
                 onChangeText={setServerIP} 
                 placeholder="Enter Server IP (e.g. 192.168.1.100:8069)"
+                placeholderTextColor="#9CA3AF"
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
               />
             </View>
@@ -154,7 +190,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={database} 
                 onChangeText={setDatabase} 
                 placeholder="Enter Database Name"
+                placeholderTextColor="#9CA3AF"
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
               />
             </View>
@@ -165,7 +203,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={adminUsername} 
                 onChangeText={setAdminUsername} 
                 placeholder="Enter Admin Username"
+                placeholderTextColor="#9CA3AF"
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
               />
             </View>
@@ -175,7 +215,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={adminPassword} 
                 onChangeText={setAdminPassword} 
                 placeholder="Enter Admin Password"
-                className="flex-1 p-3.5"
+                placeholderTextColor="#9CA3AF"
+                className="flex-1 p-3.5 text-gray-900"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
                 secureTextEntry={!showPassword}
               />
@@ -194,7 +236,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={powerSyncURI} 
                 onChangeText={setPowerSyncURI} 
                 placeholder="PowerSync URI"
+                placeholderTextColor="#9CA3AF"
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
               />
             </View>

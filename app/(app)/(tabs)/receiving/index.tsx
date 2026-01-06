@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, FlatList, ScrollView } from 'react-native';
-import { Stack, Link } from 'expo-router';
+import { Stack, Link, useLocalSearchParams } from 'expo-router';
 import { ChevronRight, Users, Archive, TrendingUp, Database, TrendingDown, BarChart3, Calendar, MapPin, CheckCircle, DollarSign } from 'lucide-react-native';
 
 // --- Re-usable components for the tabs ---
@@ -148,7 +148,7 @@ const menuItems = [
   { id: '3', title: 'Check Grower Delivery Notes', href: '/receiving/view-all-grower-d-notes' },
   { id: '4', title: 'Marshalling', href: '/receiving/add-bale-to-gd-note' },
   { id: '5', title: 'Sequencing Scanner', href: '/receiving/sequencing-scanner' },
-  { id: '6', title: 'Transporter Delivery Note Details', href: '/receiving/transporter-details' },
+  // { id: '6', title: 'Resequencing', href: '/receiving/bale-resequencing' },
   
 ];
 
@@ -176,11 +176,26 @@ const MenuComponent = () => {
 // --- The main screen component ---
 
 export default function ReceivingScreen() {
+  const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'menu'>('dashboard');
+
+  // Initialize active tab from route param (e.g. /receiving?tab=menu)
+  useEffect(() => {
+    const tabParam = (params?.tab as string | undefined)?.toLowerCase();
+    if (tabParam === 'menu') {
+      setActiveTab('menu');
+    } else if (tabParam === 'dashboard') {
+      setActiveTab('dashboard');
+    }
+  }, [params?.tab]);
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Receiving' }} />
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
+      />
       <View className="flex-1 p-4 bg-[#65435C]">
         <View className="flex-1 bg-white rounded-2xl p-4">
           {/* Tab Switcher */}

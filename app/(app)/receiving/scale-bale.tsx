@@ -1,14 +1,19 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter, useFocusEffect, useNavigation } from 'expo-router';
+import { StackActions } from '@react-navigation/native';
 import React from 'react';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { BaleRecord, GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import { SuccessToast } from '@/components/SuccessToast';
 import { Picker } from '@react-native-picker/picker';
 import { useNetwork } from '@/NetworkContext';
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from 'uuid';
+import { useSession } from '@/authContext';
+import { ChevronLeft } from 'lucide-react-native';
 
 // Safe storage wrapper: same as in sequencing-scanner
 let RNAsync: any = null;
@@ -44,6 +49,8 @@ const FormInput = ({ label, value, onChangeText, placeholder, editable = true }:
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
+        placeholderTextColor="#9CA3AF"
+        style={{ color: '#111827' }}
       editable={editable}
     />
   </View>
@@ -62,11 +69,11 @@ const FormPicker = ({ label, value, onValueChange, items, placeholder }: {
       <Picker
         selectedValue={value}
         onValueChange={onValueChange}
-        style={{ height: 50 }}
+        style={{ height: 50, color: value ? '#111827' : '#4B5563' }}
       >
-        <Picker.Item label={placeholder} value="" />
+        <Picker.Item label={placeholder} value="" color="#9CA3AF" />
         {items.map((item) => (
-          <Picker.Item key={item.value} label={item.label} value={item.value} />
+          <Picker.Item key={item.value} label={item.label} value={item.value} color="#374151" />
         ))}
       </Picker>
     </View>
@@ -79,6 +86,8 @@ const ScaleBaleScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { isConnected } = useNetwork();
+  const { session } = useSession();
+  const navigation = useNavigation();
   
   // Original state variables
   const [lay, setLay] = useState('1');
@@ -121,10 +130,24 @@ const ScaleBaleScreen = () => {
     status: 'pending' | 'in_progress' | 'completed';
     last_scan_date?: string;
   }>>([]);
+  // Store ALL notes (including completed) for summary display
+  const [allGdNotes, setAllGdNotes] = useState<Array<{
+    document_number: string;
+    grower_number: string;
+    grower_name: string;
+    number_of_bales: number;
+    number_of_bales_delivered: number;
+    scanned_bales: number;
+    remaining_bales: number;
+    progress_percentage: number;
+    status: 'pending' | 'in_progress' | 'completed';
+    last_scan_date?: string;
+  }>>([]);
   const [autoProcessTimeout, setAutoProcessTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [previousGdNotesStatus, setPreviousGdNotesStatus] = useState<Map<string, 'pending' | 'in_progress' | 'completed'>>(new Map());
+  const [completedDocuments, setCompletedDocuments] = useState<Set<string>>(new Set());
   // Lay options for the picker
   const layOptions = [
     { label: 'Lay 1', value: '1' },
@@ -136,9 +159,63 @@ const ScaleBaleScreen = () => {
   ];
 
 
+  // This watcher now directly counts the synced records.
+  useEffect(() => {
+    if (!documentNumberDisplay) {
+      setTotalScanned(0);
+      setTotalDelivered(0);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const updateCounts = async () => {
+      try {
+        // Get total expected count
+        const deliveryNote = await powersync.get<GrowerDeliveryNoteRecord>(
+          'SELECT id, number_of_bales_delivered FROM receiving_grower_delivery_note WHERE document_number = ?',
+          [documentNumberDisplay]
+        );
+        const expected = deliveryNote?.number_of_bales_delivered || 0;
+        if (!isCancelled) setTotalDelivered(expected);
+
+        // Count all synced sequencing records for this delivery
+        const result = await powersync.get<{ count: number }>(
+          'SELECT COUNT(*) as count FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id = ?',
+          [deliveryNote?.id]
+        );
+        if (!isCancelled) setTotalScanned(result?.count || 0);
+
+        console.log(`[Direct Count] Progress for ${documentNumberDisplay}: ${result?.count || 0}/${expected}`);
+      } catch (e) {
+        if (!String(e).includes('empty')) {
+          console.warn(`[Direct Count] Error updating counts for ${documentNumberDisplay}`, e);
+        }
+      }
+    };
+
+    updateCounts();
+
+    const watcher = powersync.watch(
+      `SELECT * FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id IN (SELECT id FROM receiving_grower_delivery_note WHERE document_number = '${documentNumberDisplay}')`,
+      [],
+      { onResult: updateCounts }
+    );
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [documentNumberDisplay]);
+
+
   // Original actionScanBale function with enhanced error handling
   const actionScanBale = useCallback(async () => {
-    if (!scaleBarcode) {
+    // Store the barcode to clear it in finally block
+    const barcodeToProcess = scaleBarcode;
+    let docNum = '';
+    let gdnId: number | null = null;
+    
+    if (!barcodeToProcess) {
       setResultMessage('Please enter a barcode');
       setIsError(true);
       return;
@@ -213,8 +290,8 @@ const ScaleBaleScreen = () => {
       // OFFLINE: Update UI state and local counters without server calls
       setLastScanSuccess(true);
 
-      // Use the current scanned barcode to fetch local info before clearing input
-      const scanned = scaleBarcode;
+      // Use the stored barcode to fetch local info before clearing input
+      const scanned = barcodeToProcess;
 
       // Local: resolve bale + progress from PowerSync
       try {
@@ -226,7 +303,9 @@ const ScaleBaleScreen = () => {
               b.lot_number,
               b.group_number,
               b.grower_delivery_note_id,
-              b.state as bale_state
+              b.state as bale_state,
+              b.mass,
+              b.source_mass
            FROM receiving_bale b
           WHERE b.scale_barcode = ? OR b.barcode = ?
           ORDER BY COALESCE(b.write_date, b.create_date) DESC
@@ -239,6 +318,23 @@ const ScaleBaleScreen = () => {
         // Pre-validation 1: Check if bale exists
         if (!bale) {
           setResultMessage(`❌ Bale with barcode ${scanned} not found in local database.\n\nPlease ensure the bale has been added to a delivery note first.`);
+          setIsError(true);
+          setLastScanSuccess(false);
+          setScaleBarcode('');
+          return;
+        }
+
+        // Pre-validation 2b: Ensure bale has a positive recorded mass before sequencing
+        const parseMassValue = (value: unknown): number => {
+          if (value === null || value === undefined) return NaN;
+          const numericValue = typeof value === 'number' ? value : parseFloat(String(value));
+          return Number.isNaN(numericValue) ? NaN : numericValue;
+        };
+        const recordedMass = parseMassValue(bale.mass);
+        const fallbackMass = parseMassValue(bale.source_mass);
+        const resolvedMassKg = Number.isFinite(recordedMass) ? recordedMass : fallbackMass;
+        if (!Number.isFinite(resolvedMassKg) || resolvedMassKg <= 0) {
+          setResultMessage(`❌ Scan Failed\n\nBale ${scanned} has zero recorded mass and cannot be sequenced. Please send it back to the scale to capture the weight.`);
           setIsError(true);
           setLastScanSuccess(false);
           setScaleBarcode('');
@@ -258,8 +354,8 @@ const ScaleBaleScreen = () => {
           setGrowerNumber(bale.grower_number || '');
           setLotNumber(bale.lot_number || '');
           setGroupNumber(bale.group_number || '');
-          let docNum = bale.document_number || '';
-          const gdnId = bale.grower_delivery_note_id || null;
+          docNum = bale.document_number || '';
+          gdnId = bale.grower_delivery_note_id || null;
         
         // Pre-validation 3: Require we have some linkage to a delivery before recording
         if (!docNum && !gdnId) {
@@ -274,10 +370,13 @@ const ScaleBaleScreen = () => {
           if (!docNum && bale.grower_delivery_note_id) {
             try {
               const gdn = await powersync.get<any>(
-              `SELECT document_number, state, selling_point_id FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
+              `SELECT document_number, state, selling_point_id, grower_name FROM receiving_grower_delivery_note WHERE id = ? LIMIT 1`,
                 [bale.grower_delivery_note_id]
               );
               docNum = gdn?.document_number || '';
+              if (gdn?.grower_name) {
+                setGrowerName(gdn.grower_name);
+              }
               console.log('🔗 Resolved document number via GDN id:', docNum);
             
             // Pre-validation 4: Check GDN state - must be 'laid' to allow sequencing
@@ -344,9 +443,12 @@ const ScaleBaleScreen = () => {
           // Pre-validation 4: Check GDN state when we have document_number - must be 'laid'
           try {
             const gdn = await powersync.get<any>(
-              `SELECT state, selling_point_id FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
+              `SELECT state, selling_point_id, grower_name FROM receiving_grower_delivery_note WHERE document_number = ? LIMIT 1`,
               [docNum]
             );
+            if (gdn?.grower_name) {
+              setGrowerName(gdn.grower_name);
+            }
             const gdnState = (gdn?.state || '').toLowerCase();
             if (gdnState && gdnState !== 'laid') {
               setResultMessage(`❌ Cannot sequence bale: Delivery note ${docNum} is in state "${gdn?.state || 'unknown'}" and must be "Laid" to allow sequencing.\n\nCurrent state: ${gdn?.state || 'unknown'}`);
@@ -414,17 +516,17 @@ const ScaleBaleScreen = () => {
         // Pre-validation 6: Check if bale has already been sequenced
         try {
           const existingSequencing = await powersync.get<any>(
-            `SELECT "row", lay, scan_date 
+            `SELECT "row", lay, create_date
              FROM receiving_curverid_bale_sequencing_model 
-             WHERE barcode = ? OR scale_barcode = ? 
+             WHERE barcode = ?
              LIMIT 1`,
-            [scanned, scanned]
+            [scanned]
           );
           
           if (existingSequencing) {
             const rowNum = existingSequencing.row;
             const layNum = existingSequencing.lay;
-            const scanDate = existingSequencing.scan_date || 'unknown date';
+            const scanDate = existingSequencing.create_date || 'unknown date';
             setResultMessage(`❌ Scan Failed\n\nThis bale has already been sequenced in Row ${rowNum}, Lay ${layNum} on ${scanDate}.`);
               setIsError(true);
             setLastScanSuccess(false);
@@ -462,7 +564,7 @@ const ScaleBaleScreen = () => {
               const countResult = await powersync.get<{ count: number }>(
                 `SELECT COUNT(*) as count 
                  FROM receiving_curverid_bale_sequencing_model 
-                 WHERE "row" = ? AND lay = ? AND selling_point_id = ? AND scan_date = ?`,
+                 WHERE "row" = ? AND lay = ? AND selling_point_id = ? AND DATE(create_date) = ?`,
                 [rowNum, layNum.toString(), sellingPointIdNum, todayStr]
               );
               existingCount = countResult?.count || 0;
@@ -497,15 +599,14 @@ const ScaleBaleScreen = () => {
         try {
             let existingRows: any[] = [];
             try {
+              // We check against delivery_note_id now
               existingRows = await powersync.getAll<any>(
-              `SELECT id, document_number, COALESCE(barcode, scale_barcode) AS barcode,
-                      "row" as row_number, lay, scan_datetime, write_date
+              `SELECT id, "row" as row_number, lay, create_date, write_date
                  FROM receiving_curverid_bale_sequencing_model
-                WHERE (barcode = ? OR scale_barcode = ?)
-                  AND ((document_number IS NOT NULL AND document_number = ?) OR (grower_delivery_note_id IS NOT NULL AND grower_delivery_note_id = ?))
-                ORDER BY COALESCE(write_date, scan_datetime, create_date) DESC
+                WHERE barcode = ? AND delivery_note_id = ?
+                ORDER BY COALESCE(write_date, create_date) DESC
                 LIMIT 1`,
-              [scanned, scanned, docNum || '', gdnId || '']
+              [scanned, gdnId]
               ) || [];
             } catch (tableError: any) {
               // Table might not exist yet if schema was just updated - treat as no duplicates
@@ -521,7 +622,7 @@ const ScaleBaleScreen = () => {
               duplicateFound = true;
               const ex = existingRows[0] || {};
               // Prefer ISO datetime fields and render a friendly local time
-              let scannedAt: string | null = ex.scan_datetime || ex.write_date || null;
+              let scannedAt: string | null = ex.create_date || ex.write_date || null;
               try {
                 if (scannedAt) scannedAt = new Date(scannedAt).toLocaleString();
               } catch {}
@@ -566,27 +667,32 @@ const ScaleBaleScreen = () => {
               setLastScanSuccess(false);
             } else {
               // All pre-validations passed - safe to insert into local sequencing table
-              const seqId = `seq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              // Note: The schema for this table is now different
               const nowIso = new Date().toISOString();
+              const seqId = uuidv4();
               
               try {
+              // The local insert includes mobile user info so we can filter pending GD notes correctly
+              const currentUserId = (session as any)?.userId ?? (session as any)?.uid;
+              const currentUserName = (session as any)?.name || '';
+              
               await powersync.execute(
                 `INSERT INTO receiving_curverid_bale_sequencing_model (
-                   id, document_number, grower_delivery_note_id, scale_barcode, barcode, "row", lay, selling_point_id, floor_sale_id, scan_date, scan_datetime, create_date, write_date
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), ?, ?, ?)`,
+                   id, barcode, delivery_note_id, "row", lay, selling_point_id, floor_sale_id, create_date, write_date, create_uid, mobile_scanned_by_id, mobile_scanned_by_name
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   seqId,
-                  docNum || null,
-                  gdnId || null,
                   scanned,
-                  scanned,
+                  gdnId,
                   parseInt(row, 10) || null,
                   lay || null,
                   sellingPointId ? Number(sellingPointId) : null,
                   floorSaleId ? Number(floorSaleId) : null,
                   nowIso,
                   nowIso,
-                  nowIso
+                  currentUserId != null ? Number(currentUserId) : null,
+                  currentUserId != null ? Number(currentUserId) : null,
+                  currentUserName || null
                 ]
               );
                 console.log('✅ Sequencing record inserted successfully');
@@ -610,6 +716,50 @@ const ScaleBaleScreen = () => {
               // The Connector handles this through unified_create with type 'bale_sequencing'
               // Odoo will automatically create ticket printing batch when delivery completes
               console.log('✅ Sequencing record saved locally - will sync to server via PowerSync');
+
+              // Check for completion immediately after scan (Local check)
+              // Use setTimeout to ensure the database transaction has committed
+              setTimeout(async () => {
+              try {
+                if (docNum || gdnId) {
+                  const deliveryStats = await powersync.get<any>(
+                    `SELECT 
+                       (SELECT COUNT(*) FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id = gdn.id) as scanned_count,
+                       COALESCE(gdn.number_of_bales_delivered, gdn.number_of_bales, 0) as expected_count,
+                       gdn.document_number
+                     FROM receiving_grower_delivery_note gdn
+                     WHERE ${docNum ? 'gdn.document_number = ?' : 'gdn.id = ?'}`,
+                    [docNum || gdnId]
+                  );
+
+                  if (deliveryStats) {
+                    const scanned = deliveryStats.scanned_count || 0;
+                    const expected = deliveryStats.expected_count || 0;
+                    const finalDocNum = deliveryStats.document_number || docNum || 'Unknown';
+
+                      // Check if completion is reached (accounting for the record we just inserted)
+                      // Add 1 to scanned count since we just inserted a record
+                      const totalScanned = scanned + 1;
+
+                      if (expected > 0 && totalScanned >= expected && !completedDocuments.has(finalDocNum)) {
+                        console.log(`🎉 GD Note ${finalDocNum} completed by local scan! (${totalScanned}/${expected})`);
+                        setCompletedDocuments(prev => new Set(prev).add(finalDocNum));
+                      const message = `✅ GD Note ${finalDocNum} Completed!\n\nDelivery note completed and sent to ticket printing.`;
+                      setSuccessMessage(message);
+                      setShowSuccess(true);
+                      
+                      Alert.alert(
+                        'Delivery Complete',
+                          `Delivery note ${finalDocNum} completed and sent to ticket printing.`,
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  }
+                }
+              } catch (completionError) {
+                console.warn('⚠️ Failed to check completion status:', completionError);
+              }
+              }, 100); // Small delay to ensure database commit
             }
           } catch (e) {
             console.warn('⚠️ Duplicate check/insert failed', e);
@@ -622,76 +772,7 @@ const ScaleBaleScreen = () => {
             return;
           }
 
-          // Compute progress for the same document_number
-          if (docNum || gdnId) {
-            let counts: any = { scanned_count: 0, expected_count: 0 };
-            try {
-              counts = await powersync.get<any>(
-              `SELECT 
-                   (SELECT COUNT(DISTINCT COALESCE(barcode, scale_barcode)) FROM receiving_curverid_bale_sequencing_model WHERE (document_number = ? OR grower_delivery_note_id = ?)) AS scanned_count,
-                   (SELECT COALESCE(number_of_bales_delivered, number_of_bales, 0) FROM receiving_grower_delivery_note WHERE (document_number = ? OR id = ?) LIMIT 1) AS expected_count`,
-              [docNum || '', gdnId || '', docNum || '', gdnId || '']
-              ) || { scanned_count: 0, expected_count: 0 };
-            } catch (tableError: any) {
-              // Table might not exist yet if schema was just updated - use 0 for scanned_count
-              if (tableError?.message?.includes('no such table') || tableError?.message?.includes('does not exist')) {
-                console.log('⚠️ Sequencing table not found yet - using 0 for scanned count');
-                // Still try to get expected_count from GDN
-                try {
-                  const gdnCounts = await powersync.get<any>(
-                    `SELECT COALESCE(number_of_bales_delivered, number_of_bales, 0) AS expected_count 
-                     FROM receiving_grower_delivery_note 
-                     WHERE (document_number = ? OR id = ?) LIMIT 1`,
-                    [docNum || '', gdnId || '']
-                  );
-                  counts = { scanned_count: 0, expected_count: gdnCounts?.expected_count || 0 };
-                } catch (e) {
-                  counts = { scanned_count: 0, expected_count: 0 };
-                }
-              } else {
-                throw tableError; // Re-throw if it's a different error
-              }
-            }
-            const scannedCount = Number(counts?.scanned_count) || 0;
-            const expectedCount = Number(counts?.expected_count) || 0;
-            setTotalScanned(scannedCount);
-            setTotalDelivered(expectedCount);
-
-            // Check if this scan just completed the delivery
-            if (expectedCount > 0 && scannedCount >= expectedCount) {
-              // Check previous status to see if this is a new completion
-              const previousStatus = previousGdNotesStatus.get(docNum || '');
-              if (previousStatus !== 'completed') {
-                // Get grower info for the acknowledgement
-                const gdNote = await powersync.get<any>(
-                  `SELECT grower_name, grower_number FROM receiving_grower_delivery_note WHERE (document_number = ? OR id = ?) LIMIT 1`,
-                  [docNum || '', gdnId || '']
-                );
-                
-                console.log(`🎉 GD Note ${docNum} just completed locally!`);
-                const growerInfo = gdNote?.grower_name ? ` (${gdNote.grower_name})` : '';
-                const message = `✅ GD Note ${docNum}${growerInfo} completed!\n\nAll ${expectedCount} bales have been scanned.`;
-                setSuccessMessage(message);
-                setShowSuccess(true);
-                
-                // Update status map to prevent duplicate acknowledgements
-                setPreviousGdNotesStatus(prev => {
-                  const updated = new Map(prev);
-                  updated.set(docNum || '', 'completed');
-                  return updated;
-                });
-                
-                // Show alert for immediate feedback
-                Alert.alert(
-                  'Delivery Completed! 🎉',
-                  `GD Note ${docNum}${growerInfo} has been completed.\n\nAll ${expectedCount} bales scanned.`,
-                  [{ text: 'OK' }]
-                );
-              }
-            }
-
-            // Odoo will automatically create ticket printing batch when delivery completes
-        }
+          // The watcher useEffect will handle progress updates automatically
       } catch (e) {
         console.warn('⚠️ Local progress fetch failed', e);
         setResultMessage(`❌ Error processing bale lookup: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -714,21 +795,78 @@ const ScaleBaleScreen = () => {
       }
 
       setIsError(false);
-      setScaleBarcode('');
+      
+      // Force refresh counts after successful scan (with small delay to ensure DB commit)
+      setTimeout(async () => {
+      try {
+        if (docNum || gdnId) {
+          // Trigger a manual count update
+          const deliveryNote = await powersync.get<GrowerDeliveryNoteRecord>(
+            'SELECT id, number_of_bales_delivered FROM receiving_grower_delivery_note WHERE document_number = ? OR id = ?',
+            [docNum || '', gdnId || '']
+          );
+          if (deliveryNote) {
+            const result = await powersync.get<{ count: number }>(
+              'SELECT COUNT(*) as count FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id = ?',
+              [deliveryNote.id]
+            );
+              const scannedCount = result?.count || 0;
+              const expectedCount = deliveryNote.number_of_bales_delivered || 0;
+              
+              setTotalScanned(scannedCount);
+              setTotalDelivered(expectedCount);
+              
+              // Also check for completion here as a backup (only if not already shown)
+              if (expectedCount > 0 && scannedCount >= expectedCount) {
+                const finalDocNum = docNum || 'Unknown';
+                if (!completedDocuments.has(finalDocNum)) {
+                  console.log(`🎉 GD Note ${finalDocNum} completed! (${scannedCount}/${expectedCount})`);
+                  setCompletedDocuments(prev => new Set(prev).add(finalDocNum));
+                  const message = `✅ GD Note ${finalDocNum} Completed!\n\nDelivery note completed and sent to ticket printing.`;
+                  setSuccessMessage(message);
+                  setShowSuccess(true);
+                  
+                  Alert.alert(
+                    'Delivery Complete',
+                    `Delivery note ${finalDocNum} completed and sent to ticket printing.`,
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+          }
+        }
+      } catch (countError) {
+        console.warn('⚠️ Failed to refresh counts:', countError);
+      }
+      }, 150); // Small delay to ensure database commit
 
       // Optionally refresh pending list (already local)
       try {
         await fetchAllPendingGdNotes();
       } catch {}
 
-    } catch {
-      setResultMessage('❌ Error processing scan offline');
+    } catch (error: any) {
+      console.error('❌ Error processing scan:', error);
+      setResultMessage(`❌ Error processing scan: ${error?.message || 'Unknown error'}`);
       setIsError(true);
       setLastScanSuccess(false);
     } finally {
-      // Keep isProcessing unchanged to avoid UI lag
+      // Always clear the barcode to prevent it from getting stuck
+      if (scaleBarcode === barcodeToProcess) {
+        setScaleBarcode('');
+      }
+      // Reset processing state
+      setIsProcessing(false);
     }
-  }, [scaleBarcode, row, lay, sellingPointId, floorSaleId, currentRowBales, rowCapacity]);
+  }, [
+    scaleBarcode,
+    row,
+    lay,
+    sellingPointId,
+    floorSaleId,
+    currentRowBales,
+    rowCapacity
+  ]);
 
   const getGdExpected = (gdInfo: any) => {
     if (!gdInfo) return undefined;
@@ -797,40 +935,61 @@ const ScaleBaleScreen = () => {
 
   // Fetch pending GD Notes scanned on this device (local sequencing), not global pending
   const fetchAllPendingGdNotes = async () => {
+    const userId = (session as any)?.userId ?? (session as any)?.uid;
+    if (!userId) {
+      console.log('⚠️ Cannot fetch pending notes, user ID not found in session.');
+      console.log('Session object:', JSON.stringify(session));
+      setAllPendingGdNotes([]);
+      return [];
+    }
+    
     try {
-      console.log('🔍 Fetching device-local pending GD Notes (from sequencing model)...');
+      console.log(`🔍 Fetching pending GD Notes for mobile user ID: ${userId}`);
 
-      // 1) Gather local scans per document_number on this device
-      let localScans: any[] = [];
-      try {
-        localScans = await powersync.getAll<any>(
-        `SELECT document_number,
-                COUNT(DISTINCT COALESCE(barcode, scale_barcode)) AS scanned_bales,
-                MAX(write_date) AS last_scan_date
-           FROM receiving_curverid_bale_sequencing_model
-          WHERE document_number IS NOT NULL AND TRIM(document_number) <> ''
-          GROUP BY document_number`
-        ) || [];
-      } catch (tableError: any) {
-        // Table might not exist yet if schema was just updated - return empty array
-        if (tableError?.message?.includes('no such table') || tableError?.message?.includes('does not exist')) {
-          console.log('⚠️ Sequencing table not found yet - returning empty list (table will be created on next sync)');
-          setAllPendingGdNotes([]);
-          return [];
-        }
-        throw tableError; // Re-throw if it's a different error
-      }
-
-      if (!Array.isArray(localScans) || localScans.length === 0) {
+      // 1) Gather document numbers where THIS mobile user has scanned bales.
+      // We filter by mobile_scanned_by_id (the actual mobile employee who scanned) first,
+      // with fallback to create_uid for legacy records that haven't been synced yet.
+      // Odoo sets create_uid to the admin user after sync, but mobile_scanned_by_id contains the real mobile user.
+      const userScannedDocs = await powersync.getAll<{ document_number: string }>(
+        `SELECT DISTINCT gdn.document_number
+         FROM receiving_curverid_bale_sequencing_model seq
+         JOIN receiving_grower_delivery_note gdn ON gdn.id = seq.delivery_note_id
+         WHERE (seq.mobile_scanned_by_id = ? OR (seq.mobile_scanned_by_id IS NULL AND CAST(seq.create_uid AS TEXT) = ?))`,
+        [Number(userId), String(userId)]
+      );
+      
+      console.log(`🔍 Found ${userScannedDocs.length} documents scanned by mobile user ${userId}`);
+      
+      const docNumbers = userScannedDocs.map(d => d.document_number).filter(Boolean);
+      if (docNumbers.length === 0) {
+        console.log('ℹ️ No active deliveries found for this mobile user.');
         setAllPendingGdNotes([]);
+        setAllGdNotes([]);
         return [];
       }
 
-      // Build IN clause safely
-      const docNumbers = localScans.map(s => s.document_number).filter(Boolean);
+      // 2) Gather all local scans for those specific document_numbers
       const placeholders = docNumbers.map(() => '?').join(',');
+      const localScans = await powersync.getAll<any>(
+      `SELECT
+            gdn.document_number,
+            COUNT(seq.id) AS scanned_bales,
+            MAX(seq.write_date) AS last_scan_date
+          FROM receiving_curverid_bale_sequencing_model seq
+          JOIN receiving_grower_delivery_note gdn ON gdn.id = seq.delivery_note_id
+        WHERE gdn.document_number IN (${placeholders})
+        GROUP BY gdn.document_number`,
+        docNumbers
+      ) || [];
 
-      // 2) Fetch expected counts for those document_numbers from GD Notes
+
+      if (!Array.isArray(localScans) || localScans.length === 0) {
+        setAllPendingGdNotes([]);
+        setAllGdNotes([]);
+        return [];
+      }
+
+      // 3) Fetch expected counts for those document_numbers from GD Notes
       const gdNotes = await powersync.getAll<any>(
         `SELECT 
             g.document_number,
@@ -872,10 +1031,16 @@ const ScaleBaleScreen = () => {
         };
       });
 
-      // 3) Only show notes that were scanned on this device but not finished
-      const filtered = processed.filter(n => n.scanned_bales > 0 && n.scanned_bales < n.number_of_bales_delivered);
+      // 3) Store ALL notes (including completed) for summary display
+      setAllGdNotes(processed.filter(n => n.scanned_bales > 0));
 
-      // 4) Detect newly completed GD Notes and show acknowledgement
+      // 4) Show only incomplete notes scanned on this device (for the list display)
+      const filtered = processed.filter(n => n.scanned_bales > 0 && n.status !== 'completed');
+
+      // 5) Detect newly completed GD Notes and show acknowledgement
+      // Note: The Alert is now handled in actionScanBale() to provide immediate feedback upon scanning the final bale.
+      // We keep previousGdNotesStatus updating logic just in case we need state history later,
+      // but we removed the duplicate Alert trigger here.
       const previousStatus = previousGdNotesStatus;
       const currentStatus = new Map<string, 'pending' | 'in_progress' | 'completed'>();
       
@@ -884,39 +1049,17 @@ const ScaleBaleScreen = () => {
         currentStatus.set(note.document_number, note.status);
       });
       
-      // Check for transitions from in_progress/pending to completed
-      for (const [docNumber, currentStatusValue] of currentStatus.entries()) {
-        if (currentStatusValue === 'completed') {
-          const previousStatusValue = previousStatus.get(docNumber);
-          // If it was previously in_progress or pending, and now completed, show acknowledgement
-          if (previousStatusValue && previousStatusValue !== 'completed') {
-            const note = processed.find(n => n.document_number === docNumber);
-            if (note) {
-              console.log(`🎉 GD Note ${docNumber} just completed!`);
-              const message = `✅ GD Note ${docNumber} completed!\n\nAll ${note.number_of_bales_delivered} bales have been scanned.`;
-              setSuccessMessage(message);
-              setShowSuccess(true);
-              
-              // Show alert for immediate feedback
-              Alert.alert(
-                'Delivery Completed! 🎉',
-                `GD Note ${docNumber} (${note.grower_name}) has been completed.\n\nAll ${note.number_of_bales_delivered} bales scanned.`,
-                [{ text: 'OK' }]
-              );
-            }
-          }
-        }
-      }
-      
       // Update previous status for next comparison
       setPreviousGdNotesStatus(currentStatus);
 
       console.log('🔍 Device-local pending GD Notes:', filtered.length);
+      console.log('🔍 Total GD Notes (including completed):', processed.filter(n => n.scanned_bales > 0).length);
       setAllPendingGdNotes(filtered);
       return filtered;
     } catch (error) {
       console.error('❌ Error fetching device-local pending GD Notes:', error);
       setAllPendingGdNotes([]);
+      setAllGdNotes([]);
       return [];
     }
   };
@@ -977,12 +1120,17 @@ const ScaleBaleScreen = () => {
 
   // Auto-process scanned barcode when it comes from camera
   useEffect(() => {
-    if (scaleBarcode && params.scannedBarcode === scaleBarcode) {
+    if (scaleBarcode && params.scannedBarcode === scaleBarcode && !isProcessing) {
       // Only auto-process if this barcode came from the scanner (not manual entry)
+      // And not already processing to prevent duplicate scans
       console.log('🔄 Auto-processing scanned barcode:', scaleBarcode);
-      actionScanBale();
+      setIsProcessing(true);
+      actionScanBale().finally(() => {
+        // Clear the scannedBarcode param to prevent re-triggering
+        router.setParams({ scannedBarcode: undefined });
+      });
     }
-  }, [scaleBarcode, params.scannedBarcode, actionScanBale]);
+  }, [scaleBarcode, params.scannedBarcode, actionScanBale, isProcessing, router]);
 
   // Fetch row capacity when selling point changes
   useEffect(() => {
@@ -1128,9 +1276,34 @@ const ScaleBaleScreen = () => {
 
 
   return (
-    <>
-      <ScrollView className="flex-1 bg-white p-5">
-        
+    <SafeAreaView className="flex-1 bg-[#65435C]">
+      <Stack.Screen options={{ title: 'Scale Bale', headerShown: false }} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+        <View className="flex-1 p-4">
+          {/* Custom header routing back to Sequencing Scanner */}
+          <View className="flex-row items-center justify-between mb-2 bg-white rounded-2xl px-4 py-3">
+            <TouchableOpacity
+              className="flex-row items-center"
+              onPress={() =>
+                router.replace({
+                  pathname: '/receiving/sequencing-scanner',
+                })
+              }
+            >
+              <ChevronLeft size={24} color="#65435C" />
+              <Text className="text-[#65435C] font-bold text-lg ml-2">
+                Scale Bale
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            className="flex-1 bg-white rounded-2xl p-5 mt-2"
+            keyboardShouldPersistTaps="handled"
+          >
         {/* Lay Selection */}
         <FormPicker
           label="Lay"
@@ -1156,7 +1329,6 @@ const ScaleBaleScreen = () => {
           placeholder="Scan or enter bale barcode" 
         />
 
-
         {/* Action Buttons */}
         <View className="mb-6 mt-4 flex-row gap-3">
           {/* Scan Button - Opens camera and processes automatically */}
@@ -1173,8 +1345,6 @@ const ScaleBaleScreen = () => {
               <Text className="text-white font-bold text-lg">📷 Scan</Text>
             )}
           </TouchableOpacity>
-          
-        
         </View>
 
         {/* Result Message */}
@@ -1185,7 +1355,7 @@ const ScaleBaleScreen = () => {
         ) : null}
 
         {/* Scan Information Display - matching Odoo wizard */}
-        {lastScanSuccess && (
+        {(lastScanSuccess || documentNumberDisplay) && (
           <View className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <Text className="text-lg font-semibold text-gray-800 mb-3">Current Scan Information</Text>
             {documentNumberDisplay && (
@@ -1194,7 +1364,6 @@ const ScaleBaleScreen = () => {
                 <Text className="text-gray-800 font-semibold">{documentNumberDisplay}</Text>
               </View>
             )}
-          
             
             {growerNumber && (
               <View className="mb-2">
@@ -1224,27 +1393,34 @@ const ScaleBaleScreen = () => {
               </View>
             )}
             
+            {(totalScanned > 0 || totalDelivered > 0) && (
             <View className="mt-3 pt-3 border-t border-gray-300">
               <Text className="text-gray-600">Progress:</Text>
-              <Text className="text-gray-800 font-semibold">Scanned: {totalScanned} of {totalDelivered}</Text>
+                <Text className="text-gray-800 font-semibold text-lg">{totalScanned}/{totalDelivered}</Text>
+                {totalScanned >= totalDelivered && totalDelivered > 0 && (
+                  <Text className="text-green-600 font-semibold mt-2">✅ Delivery Complete!</Text>
+                )}
             </View>
+            )}
           </View>
         )}
 
-        {/* Comprehensive Pending GD Notes List */}
-        {allPendingGdNotes.length > 0 && (
-          <View className="mb-4 p-4 bg-blue-50 rounded-lg">
-            <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-base font-semibold text-blue-800">📋 All Pending GD Notes</Text>
-          <TouchableOpacity
-                onPress={fetchAllPendingGdNotes}
-                className="bg-blue-600 px-3 py-1 rounded-lg"
-          >
-                <Text className="text-white font-semibold text-xs">🔄 Refresh</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Comprehensive GD Notes List and Summary */}
+        <View className="mb-4 p-4 bg-blue-50 rounded-lg">
+          <View className="flex-row justify-between items-center mb-3">
+            <Text className="text-base font-semibold text-blue-800">📋 GD Notes</Text>
+            <TouchableOpacity
+              onPress={fetchAllPendingGdNotes}
+              className="bg-blue-600 px-3 py-1 rounded-lg"
+            >
+              <Text className="text-white font-semibold text-xs">🔄 Refresh</Text>
+            </TouchableOpacity>
+          </View>
 
-            {allPendingGdNotes.map((note, index) => (
+          {/* Show list only if there are pending/in_progress notes */}
+          {allPendingGdNotes.length > 0 && (
+            <>
+              {allPendingGdNotes.map((note, index) => (
               <View key={index} className="mt-3 p-4 bg-white rounded-lg border border-blue-200">
                 <View className="flex-row justify-between items-start mb-2">
                   <View className="flex-1">
@@ -1277,15 +1453,11 @@ const ScaleBaleScreen = () => {
                   </View>
                 </View>
                 
-                {/* Progress bar */}
-                <View className="mt-3 bg-gray-200 rounded-full h-3">
-                  <View 
-                    className={`h-3 rounded-full ${
-                      note.status === 'completed' ? 'bg-green-500' : 
-                      note.status === 'in_progress' ? 'bg-orange-500' : 'bg-gray-400'
-                    }`}
-                    style={{ width: `${note.progress_percentage}%` }}
-                  />
+                {/* Progress fraction */}
+                <View className="mt-3">
+                  <Text className="text-gray-700 font-semibold text-base">
+                    {note.scanned_bales}/{note.number_of_bales_delivered}
+                  </Text>
                 </View>
                 
                 {/* Status-specific actions */}
@@ -1315,31 +1487,31 @@ const ScaleBaleScreen = () => {
                   )}
                 </View>
               </View>
-            ))}
-            
-            {/* Summary */}
-            <View className="mt-4 p-3 bg-white rounded border border-blue-200">
-              <Text className="text-blue-800 font-semibold text-sm mb-2">
-                📊 Summary: {allPendingGdNotes.length} GD Note{allPendingGdNotes.length !== 1 ? 's' : ''} in system
+              ))}
+            </>
+          )}
+
+          {/* Summary - Always visible, shows all notes including completed */}
+          <View className="mt-4 p-3 bg-white rounded border border-blue-200">
+            <Text className="text-blue-800 font-semibold text-sm mb-2">
+              📊 Summary: {allGdNotes.length} GD Note{allGdNotes.length !== 1 ? 's' : ''} scanned
+            </Text>
+            <View className="flex-row justify-between text-xs">
+              <Text className="text-blue-600">
+                Pending: {allGdNotes.filter(n => n.status === 'pending').length}
               </Text>
-              <View className="flex-row justify-between text-xs">
-                <Text className="text-blue-600">
-                  Pending: {allPendingGdNotes.filter(n => n.status === 'pending').length}
-                </Text>
-                <Text className="text-orange-600">
-                  In Progress: {allPendingGdNotes.filter(n => n.status === 'in_progress').length}
-                </Text>
-                <Text className="text-green-600">
-                  Completed: {allPendingGdNotes.filter(n => n.status === 'completed').length}
-                </Text>
-              </View>
-              <Text className="text-blue-600 text-xs mt-1">
-                Total bales: {allPendingGdNotes.reduce((sum, note) => sum + note.scanned_bales, 0)} / {allPendingGdNotes.reduce((sum, note) => sum + note.number_of_bales_delivered, 0)} scanned
+              <Text className="text-orange-600">
+                In Progress: {allGdNotes.filter(n => n.status === 'in_progress').length}
+              </Text>
+              <Text className="text-green-600">
+                Completed: {allGdNotes.filter(n => n.status === 'completed').length}
               </Text>
             </View>
+            <Text className="text-blue-600 text-xs mt-1">
+              Total bales: {allGdNotes.reduce((sum, note) => sum + note.scanned_bales, 0)} / {allGdNotes.reduce((sum, note) => sum + note.number_of_bales_delivered, 0)} scanned
+            </Text>
           </View>
-        )}
-
+        </View>
       </ScrollView>
       
       <SuccessToast
@@ -1347,7 +1519,9 @@ const ScaleBaleScreen = () => {
         message={successMessage}
         onHide={() => setShowSuccess(false)}
       />
-    </>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 

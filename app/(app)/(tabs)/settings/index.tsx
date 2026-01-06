@@ -4,7 +4,8 @@ import { router, Stack, useFocusEffect } from 'expo-router'
 import { ChevronRight, FileSpreadsheet, LogOut } from 'lucide-react-native'
 import { useSession } from '@/authContext'
 import { forceRunImageUploadService } from '@/utils/imageUploadService'
-import { powersync } from '@/powersync/system'
+import { powersync } from '@/powersync/setup'
+import SyncLogs from './SyncLogs'
 
 const Settings = () => {
   const { signOut } = useSession()
@@ -57,7 +58,7 @@ const Settings = () => {
     <>
       <Stack.Screen options={{ 
         title: "Settings",
-        headerShown: true,
+        headerShown: false,
         // headerRight: () => (
         //     <View className="flex-row items-center gap-2 mr-4 ">
         //   <TouchableOpacity onPress={() => {
@@ -85,6 +86,8 @@ const Settings = () => {
           </TouchableOpacity>
          
           </View>
+
+        <SyncLogs />
 
         <View className="flex-1 justify-end mb-4">
              <TouchableOpacity onPress={handleDbExport} className='bg-white rounded-xl p-2'>

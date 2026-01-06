@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { powersync, connectorInstance } from '@/powersync/system';
+import { powersync, connectorInstance } from '@/powersync/setup';
+import { ChevronLeft } from 'lucide-react-native';
 
 type TDLine = {
   id: string;
@@ -14,6 +15,8 @@ type TDLine = {
   bales_difference?: number;
   physical_validation_status?: string;
   validation_notes?: string;
+  grower_delivery_note_id?: number; // Add this field
+  preferred_sale_date?: string;
 };
 
 type TDNoteHeader = {
@@ -71,6 +74,33 @@ export default function ValidateTDLineScreen() {
   const handleValidate = async () => {
     if (!line) return;
 
+    // New Pre-validation: Check if sale date has been entered for today
+    try {
+      const rawSaleDate =
+        line?.preferred_sale_date?.toString() || new Date().toISOString();
+      const saleDateToValidate = rawSaleDate.includes('T')
+        ? rawSaleDate.split('T')[0]
+        : rawSaleDate.split(' ')[0];
+
+      const saleDateRecord = await powersync.getOptional(
+        'SELECT sale_date FROM floor_maintenance_sale_date_receiving WHERE sale_date = ? LIMIT 1',
+        [saleDateToValidate]
+      );
+
+      if (!saleDateRecord) {
+        Alert.alert(
+          'Cannot Validate',
+          `The sale date ${saleDateToValidate} has not been entered. Please contact the Floor Manager to set up the sale date in Odoo before proceeding.`
+        );
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to pre-validate sale date', e);
+      Alert.alert('Error', 'Could not verify the sale date. Please check your connection and try again.');
+      return;
+    }
+
+
     // ===== ALL VALIDATIONS ARE LOCAL - NO SERVER CALLS =====
     
     // Local validation 1: Check if line exists
@@ -125,14 +155,14 @@ export default function ValidateTDLineScreen() {
       return;
     }
 
+    // All validations passed - now set validating state to disable button and show loading
+    setValidating(true);
+
     // Calculate bales difference locally (should always be 0 if validation passes)
     const balesDifference = actualCount - expected;
 
     // Save original line for error recovery
     const originalLine = line;
-
-    // Set validating state to disable button and show loading
-    setValidating(true);
 
     // ===== OPTIMISTIC UPDATE: Update UI immediately for instant feedback =====
     const updatedLine: TDLine = {
@@ -200,6 +230,7 @@ export default function ValidateTDLineScreen() {
         const errorMessage = e?.message || 'An unknown error occurred during validation.';
         Alert.alert('Validation Error', `Failed to save validation :\n${errorMessage}\n\nPlease try again.`);
       } finally {
+        // Already set to false in most paths, but ensure it is in the end
         setValidating(false);
       }
     })();
@@ -208,71 +239,70 @@ export default function ValidateTDLineScreen() {
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-white"
+      className="flex-1 bg-[#65435C]"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <Stack.Screen options={{ title: 'Validate TD Line', headerTitleStyle: { fontSize: 20, fontWeight: 'bold', color: '#65435C' } }} />
+      <Stack.Screen options={{ title: 'Validate TD Line', headerShown: false }} />
       {loading ? (
-        <View className="flex-1 items-center justify-center"><ActivityIndicator /></View>
+        <View className="flex-1 items-center justify-center"><ActivityIndicator color="white" /></View>
       ) : !line ? (
-        <View className="flex-1 items-center justify-center p-6"><Text>Line not found.</Text></View>
+        <View className="flex-1 items-center justify-center p-6"><Text className="text-white">Line not found.</Text></View>
       ) : (
-        <ScrollView 
-          className="flex-1 p-4"
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: 20 }}
-        >
-          <View className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-4">
-            <Text className="text-lg font-bold text-[#65435C] mb-2">{line.grower_number || line.grower_number}</Text>
-            <Text className="text-gray-700">{line.grower_name || line.grower_number}</Text>
-            <Text className="text-gray-500">Expected bales: {line.number_of_bales || 0}</Text>
-          </View>
-
-          <View className="mb-4">
-            <Text className="text-gray-700 mb-1 font-semibold">Actual Bales Found</Text>
-            <TextInput
-              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
-              keyboardType="number-pad"
-              onChangeText={setActual}
-              editable={!isValidated && !validating}
-              placeholder="Enter actual bales found"
-            />
-            {actual && !isNaN(parseInt(actual, 10)) && (
-              <Text className="text-sm mt-1 text-gray-600">
-                Difference: {parseInt(actual, 10) - (line.number_of_bales || 0)} bales
-                {parseInt(actual, 10) - (line.number_of_bales || 0) > 0 && ' (extra)'}
-                {parseInt(actual, 10) - (line.number_of_bales || 0) < 0 && ' (missing)'}
-                {parseInt(actual, 10) - (line.number_of_bales || 0) === 0 && ' (match)'}
+        <View className="flex-1">
+          {/* Custom header with back */}
+          <View className="flex-row items-center justify-between mb-4 bg-white py-5 px-4">
+            <TouchableOpacity
+              className="flex-row items-center"
+              onPress={() => router.back()}
+            >
+              <ChevronLeft size={24} color="#65435C" />
+              <Text className="text-[#65435C] font-bold text-lg ml-2">
+                Validate TD Line
               </Text>
-            )}
+            </TouchableOpacity>
           </View>
 
-          <View className="mb-6">
-            <Text className="text-gray-700 mb-1 font-semibold">Notes</Text>
-            <TextInput
-              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Optional notes"
-              editable={!isValidated}
-              multiline
-            />
-          </View>
+          {/* Main content card */}
+          <View className="flex-1 bg-white rounded-2xl p-4 mx-2">
+            <ScrollView 
+              className="flex-1"
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
+              <View className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-4">
+                <Text className="text-lg font-bold text-[#65435C] mb-2">{line.grower_number || line.grower_number}</Text>
+                <Text className="text-gray-700">{line.grower_name || line.grower_number}</Text>
+              </View>
 
-          <TouchableOpacity
-            className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
-            onPress={handleValidate}
-            disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating}
-          >
-            {validating ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white font-bold">
-                {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
-              </Text>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
+              <View className="mb-4">
+                <Text className="text-gray-700 mb-1 font-semibold">Actual Bales Found</Text>
+                <TextInput
+                  className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base text-gray-900"
+                  style={{ color: '#111827' }}
+                  keyboardType="number-pad"
+                  onChangeText={setActual}
+                  editable={!isValidated && !validating}
+                  placeholder="Enter actual bales found"
+                  placeholderTextColor="#65435C"
+                />
+              </View>
+
+              <TouchableOpacity
+                className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
+                onPress={handleValidate}
+                disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating}
+              >
+                {validating ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white font-bold">
+                    {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       )}
     </KeyboardAvoidingView>
   );

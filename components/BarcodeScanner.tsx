@@ -10,6 +10,14 @@ interface BarcodeScannerProps {
   onClose: () => void;
   title?: string;
   subtitle?: string;
+  displayInfo?: {
+    barcode?: string;
+    row?: string;
+    progress?: { scanned: number; total: number } | null;
+    gdnNumber?: string;
+  };
+  stayOnCamera?: boolean; // If true, don't navigate away after scanning
+  scanStatus?: 'idle' | 'processing' | 'success' | 'error'; // Status for continuous scanning mode
 }
 
 export default function BarcodeScanner({ 
@@ -17,7 +25,10 @@ export default function BarcodeScanner({
   onBarcodeScanned, 
   onClose,
   title,
-  subtitle 
+  subtitle,
+  displayInfo,
+  stayOnCamera = false,
+  scanStatus = 'idle'
 }: BarcodeScannerProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [scanned, setScanned] = useState(false);
@@ -99,7 +110,7 @@ export default function BarcodeScanner({
     
     setIsScanning(true);
     
-    // Do not modify or trim the scanned value; preserve exactly as read by camera
+    // Do not modify  the scanned value; preserve exactly as read by camera
     let normalized = value;
 
     // If QR code, accept as-is and skip Code 39 validation
@@ -132,11 +143,22 @@ export default function BarcodeScanner({
       console.log('Could not play sound or haptic:', error);
     }
 
-    setScanned(true);
+    // If stayOnCamera is true, don't block scanning - allow continuous scans
+    if (!stayOnCamera) {
+      setScanned(true);
+    }
 
     // Call the callback after a brief delay to show the highlighted barcode
     setTimeout(() => {
       onBarcodeScanned(normalized);
+      
+      // If stayOnCamera is true, reset scanning state after callback so user can scan again
+      if (stayOnCamera) {
+        setTimeout(() => {
+          setIsScanning(false);
+          setHighlightedBarcode(null);
+        }, 1000); // Show success for 1 second, then allow next scan
+      }
     }, 10);
   };
 
@@ -165,13 +187,77 @@ export default function BarcodeScanner({
   }
 
   return (
-    <View className="flex-1 bg-black">
+    <View className="flex-1 bg-[#65435C] py-10">
+      {/* Header with buttons and info - Moved outside CameraView for better touch handling */}
+      <View className="h-24 bg-black flex-row items-center justify-between px-5 pt-4 z-50">
+        <View className="flex-1 flex-row items-center">
+          <TouchableOpacity
+            className="bg-gray-800 rounded-full p-3 mr-3"
+            onPress={onClose}
+            activeOpacity={0.7}
+          >
+            <ArrowLeft color="white" size={24} />
+          </TouchableOpacity>
+          
+          {/* Display barcode and row info at top left */}
+          {(displayInfo?.barcode || displayInfo?.row || displayInfo?.progress || displayInfo?.gdnNumber) && (
+            <View className="bg-gray-800 rounded-lg px-3 py-2">
+              {displayInfo.gdnNumber && (
+                <Text className="text-white text-xs font-semibold">
+                  GDN: {displayInfo.gdnNumber}
+                </Text>
+              )}
+              {displayInfo.barcode && (
+                <Text className="text-white text-xs font-semibold mt-1">
+                  Barcode: {displayInfo.barcode}
+                </Text>
+              )}
+              {displayInfo.row && (
+                <Text className="text-white text-xs mt-1">
+                  Row: {displayInfo.row}
+                </Text>
+              )}
+              {displayInfo.progress && (
+                <Text className="text-white text-xs mt-1">
+                  {displayInfo.progress.total > 0 
+                    ? `Progress: ${displayInfo.progress.scanned}/${displayInfo.progress.total}`
+                    : `Scanned: ${displayInfo.progress.scanned}`
+                  }
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        <View className="flex-row items-center gap-3">
+          <TouchableOpacity
+            className="bg-gray-800 rounded-full p-3"
+            onPress={toggleTorch}
+            activeOpacity={0.7}
+          >
+            {torchOn ? (
+              <FlashlightOff color="white" size={22} />
+            ) : (
+              <Flashlight color="white" size={22} />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="bg-gray-800 rounded-full p-3"
+            onPress={onClose}
+            activeOpacity={0.7}
+          >
+            <X color="white" size={24} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <CameraView
         ref={cameraRef}
         style={{ flex: 1 }}
         facing="back"
         enableTorch={torchOn}
-        onBarcodeScanned={scanned ? undefined : ({ type, data }) => handleDetectedCode((type || '').toLowerCase(), data || '')}
+        onBarcodeScanned={(scanned && !stayOnCamera) ? undefined : ({ type, data }) => handleDetectedCode((type || '').toLowerCase(), data || '')}
         barcodeScannerSettings={{
           barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'codabar', 'upc_a', 'upc_e', 'pdf417']
         }}
@@ -225,25 +311,6 @@ export default function BarcodeScanner({
             }} 
           />
 
-          {/* Header with buttons */}
-          <View className="absolute top-0 left-0 right-0 h-20 bg-black/70 flex-row items-center justify-between px-5 z-50">
-            <TouchableOpacity
-              className="bg-black/70 rounded-full p-3"
-              onPress={onClose}
-              activeOpacity={0.7}
-            >
-              <ArrowLeft color="white" size={24} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="bg-black/70 rounded-full p-3"
-              onPress={onClose}
-              activeOpacity={0.7}
-            >
-              <X color="white" size={24} />
-            </TouchableOpacity>
-          </View>
-
           {/* Scanning frame */}
           <View className="flex-1 items-center justify-center z-10">
             <View className="w-72 h-72 border-2 border-white rounded-lg relative">
@@ -265,7 +332,12 @@ export default function BarcodeScanner({
             <Text className="text-white text-lg mt-8 text-center px-5">
               {title || (scanType === 'bale' ? 'Scan Bale Barcode' : 'Scan Document Number')}
             </Text>
-            <Text className="text-white text-sm mt-2 text-center px-5 opacity-80">
+            <Text className={`text-sm mt-2 text-center px-5 ${
+              scanStatus === 'success' ? 'text-green-400 font-bold' :
+              scanStatus === 'error' ? 'text-red-400 font-bold' :
+              scanStatus === 'processing' ? 'text-yellow-400 font-bold' :
+              'text-white opacity-80'
+            }`}>
               {subtitle || 'Position the barcode within the frame'}
             </Text>
             
@@ -277,7 +349,7 @@ export default function BarcodeScanner({
             
           </View>
 
-          {scanned && (
+          {scanned && !stayOnCamera && (
             <View className="absolute bottom-10 left-0 right-0 items-center">
               <TouchableOpacity
                 className="bg-[#65435C] rounded-lg py-3 px-6"

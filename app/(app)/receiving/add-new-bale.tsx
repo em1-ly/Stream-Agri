@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { Camera } from 'lucide-react-native';
-import { powersync } from '@/powersync/system';
+import { Camera, ChevronLeft } from 'lucide-react-native';
+import { powersync, setupPowerSync } from '@/powersync/setup';
 import { GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
 import { v4 as uuidv4 } from 'uuid';
@@ -42,6 +43,11 @@ const validateCheckDigit = (barcode: string): boolean => {
   return isValid;
 };
 
+const getTodaySaleDate = (): string => {
+  const today = new Date().toISOString();
+  return today.includes('T') ? today.split('T')[0] : today;
+};
+
 export default function AddNewBaleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -62,81 +68,235 @@ export default function AddNewBaleScreen() {
   const [isClosingDelivery, setIsClosingDelivery] = useState(false);
   const [isBooked, setIsBooked] = useState(false); // Track booking status from grower_bookings model
   const lastProcessedBaleBarcode = useRef<string>('');
+  const [hessians, setHessians] = useState<{ id: number; name: string; hessian_id: string }[]>([]);
+  const [editingBaleId, setEditingBaleId] = useState<string | null>(null); // Track if we're editing an existing bale
+  const [syncStatus, setSyncStatus] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const toInt = (val: string) => {
     const n = parseInt((val || '').trim(), 10);
     return isNaN(n) ? null : n;
   };
 
-  // Fetch GD Note and current bale count
-  const fetchGrowerNote = useCallback(async () => {
-    if (typeof documentNumber === 'string') {
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  // Reusable function to check booking status
+  const checkBookingStatus = async (note: GrowerDeliveryNoteRecord): Promise<boolean> => {
+    // First check if has_been_booked is set on the delivery note itself
+    if (note.has_been_booked === 1) {
+      console.log(`📋 Booking found on delivery note field - has_been_booked: ${note.has_been_booked}`);
+      return true;
+    }
+    
+    if (!note.id) {
+      return false;
+    }
+
+    let bookingFound = false;
+    const saleDateKey = getTodaySaleDate();
+    
+    // Check by grower_delivery_note_id (most specific)
+    try {
+      console.log(`📋 Checking booking for delivery note ID: ${note.id}, document: ${note.document_number}`);
+      const booking = await powersync.get<any>(
+        `SELECT has_been_booked, state 
+         FROM receiving_grower_bookings 
+         WHERE grower_delivery_note_id = ? 
+           AND state = 'closed' 
+           AND has_been_booked = 1 
+         LIMIT 1`,
+        [note.id]
+      );
+      console.log(`📋 Booking query result (by delivery note ID):`, booking);
+      if (booking?.has_been_booked === 1 && booking?.state === 'closed') {
+        bookingFound = true;
+        console.log(`📋 Booking found by delivery note ID - has_been_booked: ${booking.has_been_booked}, state: ${booking.state}`);
+      }
+    } catch (e: any) { 
+      // PowerSync's get() throws "Result set is empty" when no record found - this is expected
+      if (e?.message?.includes('empty') || e?.message?.includes('Result set')) {
+        console.log(`📋 No closed booking with has_been_booked=1 found for delivery note ID: ${note.id}`);
+      } else {
+        console.warn(`📋 Error checking booking for delivery note ID ${note.id}:`, e);
+      }
+    }
+    
+    // If not found by delivery note ID, try by grower_number + sale_date (today) (fallback)
+    if (!bookingFound && note.grower_number) {
       try {
-        const result = await powersync.get<GrowerDeliveryNoteRecord>(
+        console.log(
+          `📋 Checking booking by grower_number: ${note.grower_number} and sale_date: ${saleDateKey}`
+        );
+        const bookingByGrower = await powersync.get<any>(
+          `SELECT has_been_booked, state 
+           FROM receiving_grower_bookings 
+           WHERE grower_number = ? 
+             AND sale_date = ?
+             AND has_been_booked = 1 
+           LIMIT 1`,
+          [note.grower_number, saleDateKey]
+        );
+        console.log(`📋 Booking query result (by grower_number):`, bookingByGrower);
+        if (bookingByGrower?.has_been_booked === 1) {
+          bookingFound = true;
+          console.log(`📋 Booking found by grower_number - has_been_booked: ${bookingByGrower.has_been_booked}, state: ${bookingByGrower.state}`);
+        }
+      } catch (e: any) {
+        if (e?.message?.includes('empty') || e?.message?.includes('Result set')) {
+          console.log(
+            `📋 No booking with has_been_booked=1 found for grower_number: ${note.grower_number} on sale_date: ${saleDateKey}`
+          );
+        } else {
+          console.warn(`📋 Error checking booking for grower_number ${note.grower_number}:`, e);
+        }
+      }
+    }
+
+    // Persist booking flag locally so future mounts can skip redundant checks
+    if (bookingFound && note.id && note.has_been_booked !== 1) {
+      try {
+        await powersync.execute(
+          'UPDATE receiving_grower_delivery_note SET has_been_booked = 1, write_date = ? WHERE id = ?',
+          [new Date().toISOString(), note.id]
+        );
+      } catch (persistError) {
+        console.warn('⚠️ Failed to persist booking flag locally:', persistError);
+      }
+    }
+
+    return bookingFound;
+  };
+
+  // Fetch note + metadata once (or when doc changes)
+  useEffect(() => {
+    if (typeof documentNumber !== 'string') return;
+
+    let cancelled = false;
+
+    const loadNote = async () => {
+      try {
+        const note = await powersync.get<GrowerDeliveryNoteRecord>(
           'SELECT * FROM receiving_grower_delivery_note WHERE document_number = ?',
           [documentNumber]
         );
-        if (result) {
-          // Get current bale count
-          const baleCount = await powersync.get<{ count: number }>(
-            'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
-            [result.id, result.document_number]
-          );
-          const currentCount = baleCount?.count || 0;
-          const expected = result.number_of_bales_delivered || 0;
-          
-          setScannedCount(currentCount);
-          setExpectedCount(expected);
-          setGrowerNote(result);
-          
-          console.log(`📊 Bale counts - Scanned: ${currentCount}, Expected: ${expected}`);
-          console.log(`📋 Booking status - has_been_booked: ${result.has_been_booked} (${result.has_been_booked === 1 ? 'BOOKED' : result.has_been_booked === 0 ? 'NOT BOOKED' : 'NULL/NOT SET'})`);
-          
-          // Check booking status: query receiving_grower_bookings table for has_been_booked = 1 using grower number
-          let bookingFound = false;
-          
-          if (result.grower_number) {
-            try {
-              // Query receiving_grower_bookings table to check if has_been_booked = 1 for this grower
-              const booking = await powersync.get<any>(
-                `SELECT has_been_booked FROM receiving_grower_bookings WHERE grower_number = ? AND has_been_booked = 1 LIMIT 1`,
-                [result.grower_number]
-              );
-              
-              if (booking && booking.has_been_booked === 1) {
-                bookingFound = true;
-                setIsBooked(true);
-                console.log(`📋 Booking status from receiving_grower_bookings - has_been_booked: ${booking.has_been_booked} (BOOKED) for grower ${result.grower_number}`);
-              } else {
-                console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${result.grower_number}`);
-              }
-            } catch (bookingError: any) {
-              // PowerSync's get() throws "Result set is empty" when no record found - this is expected
-              if (bookingError?.message?.includes('empty') || bookingError?.message?.includes('Result set')) {
-                // This is normal - no booking record exists or has_been_booked is not 1
-                console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${result.grower_number}`);
-              } else {
-                // Actual error occurred
-                console.warn('⚠️ Failed to check receiving_grower_bookings:', bookingError);
-              }
-            }
-          } else {
-            console.log(`📋 No grower_number found for delivery note ${result.document_number || result.id}, cannot check booking status`);
-          }
-          
-          // If booking not found, set to false
-          if (!bookingFound) {
-            setIsBooked(false);
-          }
+
+        if (cancelled || !note) {
+          setGrowerNote(null);
+          setExpectedCount(0);
+          setIsBooked(false);
+          return;
         }
-      } catch (error) {
+
+        // Set grower note and expected count
+        setGrowerNote(note);
+        const expected = note.number_of_bales_delivered || 0;
+        setExpectedCount(expected);
+
+        // Get current bale count
+        const baleCountResult = await powersync.get<{ count: number }>(
+          'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
+          [note.id, note.document_number]
+        );
+        const scanned = baleCountResult?.count || 0;
+        setScannedCount(scanned);
+          
+        // Check booking status (only on initial load)
+        const bookingFound = await checkBookingStatus(note);
+        if (!cancelled) {
+          setIsBooked(bookingFound);
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          if (!String(error).includes('Result set is empty')) {
+            console.warn(`[Initial Load] Error updating data for ${documentNumber}`, error);
+          }
+          setGrowerNote(null);
+          setScannedCount(0);
+          setExpectedCount(0);
+          setIsBooked(false);
+        }
       }
-    }
+    };
+
+    loadNote();
+
+    return () => {
+      cancelled = true;
+    };
   }, [documentNumber]);
 
+  // Watcher dedicated to counts/progress so the UI updates instantly without re-fetching everything
   useEffect(() => {
-    fetchGrowerNote();
-  }, [fetchGrowerNote]);
+    if (typeof documentNumber !== 'string') return;
+
+    let cancelled = false;
+
+    const updateCountsOnly = async () => {
+      if (!growerNote?.id) return;
+      try {
+        const baleCountResult = await powersync.get<{ count: number }>(
+          'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
+          [growerNote.id, documentNumber]
+        );
+        if (!cancelled) {
+          setScannedCount(baleCountResult?.count || 0);
+        }
+      } catch (error) {
+        if (!String(error).includes('empty')) {
+          console.warn(`[Count Watcher] Error for ${documentNumber}`, error);
+        }
+      }
+    };
+
+    updateCountsOnly();
+
+    const watcher = powersync.watch(
+      `SELECT id FROM receiving_bale WHERE document_number = '${documentNumber}'`,
+      [],
+      {
+        onResult: () => updateCountsOnly(),
+        onError: (error) => console.error(`[Count Watcher] Error for ${documentNumber}:`, error),
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentNumber, growerNote?.id]);
+
+  // Load available hessians from Odoo (via PowerSync) once
+  useEffect(() => {
+    const loadHessians = async () => {
+      try {
+        const rows = await powersync.getAll<{ id: number; name: string; hessian_id: string }>(
+          'SELECT id, name, hessian_id FROM receiving_hessian WHERE COALESCE(active, 1) = 1 ORDER BY name'
+        );
+        setHessians(rows as any);
+      } catch (e) {
+        // ignore if table not present
+      }
+    };
+    loadHessians();
+  }, []);
 
   // Initialize session state from params once (and keep if params change)
   useEffect(() => {
@@ -154,12 +314,60 @@ export default function AddNewBaleScreen() {
     }
   }, [hessianId, locationId]);
 
-  // Refresh data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchGrowerNote();
-    }, [fetchGrowerNote])
-  );
+  // Check if bale exists when barcode is set (from scan or manual entry)
+  useEffect(() => {
+    const checkExistingBale = async () => {
+      if (!scaleBarcode || !growerNote || scaleBarcode.length < 4) {
+        setEditingBaleId(null);
+        return;
+      }
+
+      try {
+        // Check if bale exists in the current delivery note
+        const existingBale = await powersync.get<any>(
+          `SELECT id, scale_barcode, barcode, lot_number, group_number, state 
+           FROM receiving_bale 
+           WHERE (grower_delivery_note_id = ? OR document_number = ?) 
+             AND (scale_barcode = ? OR barcode = ?)
+           LIMIT 1`,
+          [growerNote.id, growerNote.document_number, scaleBarcode, scaleBarcode]
+        );
+
+        if (existingBale) {
+          // Bale exists - populate form and set edit mode
+          console.log('📦 Existing bale found, entering edit mode:', existingBale);
+          setEditingBaleId(existingBale.id);
+          setLotNumber(existingBale.lot_number || '');
+          setGroupNumber(existingBale.group_number?.toString() || '');
+          
+          // If bale is not in 'open' state, show warning but allow viewing
+          if (existingBale.state !== 'open') {
+            Alert.alert(
+              'Bale Found',
+              `Bale ${scaleBarcode} exists but is in '${existingBale.state}' state. Only bales in 'open' state can be edited.`,
+              [{ text: 'OK' }]
+            );
+          }
+        } else {
+          // Bale doesn't exist - clear edit mode and form fields
+          setEditingBaleId(null);
+          // Don't clear lot/group if user has already entered them
+          if (!lotNumber && !groupNumber) {
+            setLotNumber('');
+            setGroupNumber('');
+          }
+        }
+      } catch (e: any) {
+        // If error is "Result set is empty", that's fine - no bale found
+        if (!e?.message?.includes('empty') && !e?.message?.includes('Result set')) {
+          console.warn('⚠️ Error checking for existing bale:', e);
+        }
+        setEditingBaleId(null);
+      }
+    };
+
+    checkExistingBale();
+  }, [scaleBarcode, growerNote?.id, growerNote?.document_number]);
 
   // Listen for scanned bale barcode - FIXED: Don't navigate away
   useEffect(() => {
@@ -226,7 +434,7 @@ export default function AddNewBaleScreen() {
     const errors: string[] = [];
     
     // Pre-validation 1: Barcode validation
-    if (!scaleBarcode || scaleBarcode.trim().length < 4) {
+    if (!scaleBarcode || scaleBarcode.length < 4) {
       errors.push('Please check barcode (must be at least 4 characters)');
     } else if (!validateCheckDigit(scaleBarcode)) {
       errors.push('Please enter a valid 10-character bale barcode');
@@ -265,7 +473,8 @@ export default function AddNewBaleScreen() {
     }
     
     // Pre-validation 6: Check for duplicate group+lot combination in same delivery note
-    if (growerNote && lotNumber.trim() && groupNumber.trim()) {
+    // Skip this check if we're editing the same bale
+    if (growerNote && lotNumber.trim() && groupNumber.trim() && !editingBaleId) {
       const groupNum = toInt(groupNumber);
       if (groupNum !== null && isValidLotNumber(lotNumber)) {
         try {
@@ -288,6 +497,24 @@ export default function AddNewBaleScreen() {
             console.warn('⚠️ Error checking for duplicate group/lot:', e);
             // Continue - server will validate
           }
+        }
+      }
+    }
+    
+    // Pre-validation 7: If editing, check that bale is in 'open' state
+    if (editingBaleId) {
+      try {
+        const existingBale = await powersync.get<any>(
+          'SELECT state FROM receiving_bale WHERE id = ? LIMIT 1',
+          [editingBaleId]
+        );
+        
+        if (existingBale && existingBale.state !== 'open') {
+          errors.push(`Cannot edit bale: Bale is in '${existingBale.state}' state. Only bales in 'open' state can be edited.`);
+        }
+      } catch (e: any) {
+        if (!e?.message?.includes('empty') && !e?.message?.includes('Result set')) {
+          console.warn('⚠️ Error checking bale state:', e);
         }
       }
     }
@@ -335,21 +562,22 @@ export default function AddNewBaleScreen() {
         location_id: locationIdInt
       });
 
-      // Pre-validation: Check if bale is already associated with a closed document
+      // Pre-validation: Check if bale is already associated with a closed document (only for new bales)
+      if (!editingBaleId) {
       try {
         const existingBale = await powersync.get<any>(
-          `SELECT b.id, b.document_number, b.grower_delivery_note_id, gdn.state, gdn.grower_number, gdn.grower_name, gdn.document_number as gdn_document_number
+          `SELECT b.id, b.document_number, b.grower_delivery_note_id, gdn.state as gdn_state, gdn.grower_number, gdn.grower_name, gdn.document_number as gdn_document_number
            FROM receiving_bale b
            LEFT JOIN receiving_grower_delivery_note gdn ON b.grower_delivery_note_id = gdn.id
-           WHERE b.barcode = ? OR b.scale_barcode = ?
+             WHERE (b.barcode = ? OR b.scale_barcode = ?) AND b.id != ?
            LIMIT 1`,
-          [scaleBarcode, scaleBarcode]
+            [scaleBarcode, scaleBarcode, editingBaleId || '']
         );
         
         if (existingBale) {
           // Use document_number from the bale record, or fall back to the GDN document_number
           const existingDocNum = existingBale.document_number || existingBale.gdn_document_number || 'Unknown';
-          const existingState = (existingBale.state || '').toLowerCase();
+          const existingState = (existingBale.gdn_state || '').toLowerCase();
           const existingGrowerNum = existingBale.grower_number || 'Unknown';
           const existingGrowerName = existingBale.grower_name || 'Unknown';
           
@@ -375,6 +603,7 @@ export default function AddNewBaleScreen() {
           
           // If bale exists but document is not closed, check if it's the same document
           if (existingBale.grower_delivery_note_id === growerNote.id) {
+              // This should not happen if editingBaleId is set correctly, but handle it anyway
             Alert.alert(
               'Bale Already Added',
               `Bale ${scaleBarcode} has already been added to this delivery note (${existingDocNum}).`,
@@ -389,8 +618,7 @@ export default function AddNewBaleScreen() {
             'Bale Already Associated',
             `Bale ${scaleBarcode} is already associated with Document # ${existingDocNum} (State: ${existingState}).`,
             [
-              { text: '0k', style: 'cancel', onPress: () => setIsLoading(false) },
-              
+                { text: 'OK', style: 'cancel', onPress: () => setIsLoading(false) },
             ]
           );
           return;
@@ -400,21 +628,53 @@ export default function AddNewBaleScreen() {
         if (!baleCheckError?.message?.includes('empty') && !baleCheckError?.message?.includes('Result set')) {
           console.warn('⚠️ Error checking for existing bale:', baleCheckError);
           // Continue anyway - let server handle validation
+          }
         }
       }
 
-      // Insert the bale
-      await insertBale();
+      // Insert or update the bale
+      await saveBale();
 
-      async function insertBale() {
+      async function saveBale() {
         if (!growerNote) {
           Alert.alert('Error', 'No delivery note found');
           setIsLoading(false);
           return;
         }
         
-        const baleId = uuidv4();
         const now = new Date().toISOString();
+
+        if (editingBaleId) {
+          // Update existing bale
+          const updateVals: any = {
+            lot_number: lotNumber.trim(),
+            group_number: toInt(groupNumber),
+            write_date: now
+          };
+
+          // Only update hessian and location if they're provided
+          if (hessianIdInt !== null) {
+            updateVals.hessian = hessianIdInt;
+          }
+          if (locationIdInt !== null) {
+            updateVals.location_id = locationIdInt;
+          }
+
+          await powersync.execute(
+            `UPDATE receiving_bale SET ${Object.keys(updateVals).map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
+            [...Object.values(updateVals), editingBaleId]
+          );
+          
+          console.log(`✅ Bale updated successfully!`);
+          
+          Alert.alert(
+            '✅ Success!',
+            `Bale ${scaleBarcode} updated successfully!`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          // Insert new bale
+          const baleId = uuidv4();
 
         const baleData = {
           id: baleId,
@@ -451,26 +711,28 @@ export default function AddNewBaleScreen() {
           ]
         );
         
-        // Success - update counts
-        const newCount = scannedCount + 1;
-        setScannedCount(newCount);
-        
-        console.log(`✅ Bale saved successfully! New count: ${newCount}/${expectedCount}`);
+        // The watcher will automatically update the counts
+        console.log(`✅ Bale saved successfully!`);
+        }
 
         // Clear form for next entry
         setScaleBarcode('');
         setLotNumber('');
         setGroupNumber('');
+        setEditingBaleId(null);
 
-        // Refresh data to get latest count from server
-        await powersync.execute('SELECT 1');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for sync
-        await fetchGrowerNote();
-
-        // Check if all bales have been scanned
-        if (newCount >= expectedCount) {
+        // Only auto-advance for new bales, not edits
+        if (!editingBaleId) {
+        // Check if all bales have been scanned (optimistic check)
+        if (scannedCount + 1 >= expectedCount) {
         // Show rainbow success message
-        setTimeout(() => {
+        setTimeout(async () => {
+          // Re-check booking status when user clicks OK after all bales are scanned
+          if (growerNote) {
+            const bookingFound = await checkBookingStatus(growerNote);
+            setIsBooked(bookingFound);
+          }
+          
           Alert.alert(
             '🌈 Success!', 
             `Successfully Scanned!\n\nAll ${expectedCount} bales have been successfully scanned!`,
@@ -487,7 +749,13 @@ export default function AddNewBaleScreen() {
         }, 1000);
         } else {
           // Do not show per-bale success alerts; remain silent until completion
-          console.log(`Bale saved. Progress: ${newCount}/${expectedCount}`);
+          console.log(`Bale saved. Progress: ${scannedCount + 1}/${expectedCount}`);
+          
+          // Automatically open camera scanner for next bale
+          setTimeout(() => {
+            handleScanBarcode();
+          }, 300); // Small delay to ensure state updates complete
+          }
         }
         
         setIsLoading(false);
@@ -542,38 +810,9 @@ export default function AddNewBaleScreen() {
     }
 
     // Local validation 4: Check if delivery note has been booked
-    // Query receiving_grower_bookings table to check if has_been_booked = 1 using grower number
-    let hasBeenBooked = false;
+    console.log(`📋 [Close] Checking booking status for delivery note: ${growerNote.document_number}`);
+    const hasBeenBooked = await checkBookingStatus(growerNote);
     
-    if (growerNote.grower_number) {
-      try {
-        // Query receiving_grower_bookings table to check if has_been_booked = 1 for this grower
-        const booking = await powersync.get<any>(
-          `SELECT has_been_booked FROM receiving_grower_bookings WHERE grower_number = ? AND has_been_booked = 1 LIMIT 1`,
-          [growerNote.grower_number]
-        );
-        
-        if (booking && booking.has_been_booked === 1) {
-          hasBeenBooked = true;
-          console.log(`📋 Booking found in receiving_grower_bookings - has_been_booked: ${booking.has_been_booked} (BOOKED) for grower ${growerNote.grower_number}`);
-        } else {
-          console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${growerNote.grower_number}`);
-        }
-      } catch (bookingError: any) {
-        // PowerSync's get() throws "Result set is empty" when no record found - this is expected
-        if (bookingError?.message?.includes('empty') || bookingError?.message?.includes('Result set')) {
-          // This is normal - no booking record exists or has_been_booked is not 1
-          console.log(`📋 No booking with has_been_booked=1 found in receiving_grower_bookings for grower ${growerNote.grower_number}`);
-        } else {
-          // Actual error occurred
-          console.warn('⚠️ Failed to check receiving_grower_bookings:', bookingError);
-        }
-      }
-    } else {
-      console.log(`📋 No grower_number found for delivery note ${growerNote.document_number}, cannot check booking status`);
-    }
-    
-    console.log(`📋 Booking status check - has_been_booked: ${growerNote.has_been_booked} (type: ${typeof growerNote.has_been_booked}), isBooked: ${hasBeenBooked}`);
     if (!hasBeenBooked) {
       Alert.alert(
         'Cannot Close', 
@@ -657,20 +896,85 @@ export default function AddNewBaleScreen() {
     }
   };
 
+  // Listen for PowerSync connection status and ensure connection
+  useEffect(() => {
+    (async () => {
+      try {
+        await setupPowerSync();
+      } catch (e) {
+        console.warn('⚠️ Failed to setup PowerSync in add-new-bale:', e);
+      }
+      powersync.registerListener({
+        statusChanged: (status: any) => {
+          setSyncStatus(!!status.connected);
+        },
+      });
+    })();
+  }, []);
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
       className="flex-1 bg-[#65435C]"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       <Stack.Screen
-        name="add-bale-to-gd-note"
         options={{ 
           title: 'Add New Bale', 
-          headerShown: true 
+          headerShown: false 
         }} 
       />
+      <View className="flex-1">
+        {/* Custom header with back and PowerSync status */}
+        <View className="flex-row items-center justify-between mb-2 bg-white  py-5 px-4">
+          <TouchableOpacity
+            className="flex-row items-center"
+            // Navigate back to Add Bale to GD Note explicitly instead of just popping the stack
+            onPress={() =>
+              router.replace({
+                pathname: '/receiving/add-bale-to-gd-note',
+                params: {
+                  documentNumber: (documentNumber as string) || '',
+                  // Preserve any other important context if needed later
+                },
+              })
+            }
+          >
+            <ChevronLeft size={24} color="#65435C" />
+            <Text className="text-[#65435C] font-bold text-lg ml-2">
+              Add New Bale
+            </Text>
+          </TouchableOpacity>
+          <View className="flex-row items-center">
+            <View
+              className={`h-2 w-2 rounded-full mr-1 ${
+                syncStatus ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+            <Text
+              className={`text-xs font-semibold ${
+                syncStatus ? 'text-green-700' : 'text-red-700'
+              }`}
+            >
+              {syncStatus ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+        </View>
       
-      <ScrollView className="flex-1 bg-white rounded-2xl p-5 m-4">
+        <View className="flex-1 px-2">
+        <ScrollView
+          className="flex-1 bg-white rounded-2xl p-5 mt-2"
+          keyboardShouldPersistTaps="handled"
+            contentContainerStyle={isKeyboardVisible ? {
+              paddingBottom: 400,
+              flexGrow: 1
+            } : {
+              paddingBottom: 40,
+              flexGrow: 1
+            }}
+            scrollEnabled={true}
+            showsVerticalScrollIndicator={true}
+        >
         {growerNote && (
           <View className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <Text className="text-lg font-semibold text-gray-800 mb-2">
@@ -703,6 +1007,8 @@ export default function AddNewBaleScreen() {
           <TextInput
             className="flex-1 border border-gray-300 rounded-lg px-4 py-3 text-base"
             placeholder="Scale Barcode"
+            placeholderTextColor="#9CA3AF"
+            style={{ color: '#111827' }}
             value={scaleBarcode}
             onChangeText={setScaleBarcode}
             autoCapitalize="characters"
@@ -720,6 +1026,8 @@ export default function AddNewBaleScreen() {
          <TextInput
           className="border border-gray-300 rounded-lg px-4 py-3 text-base mb-6"
           placeholder="Group Number"
+          placeholderTextColor="#9CA3AF"
+          style={{ color: '#111827' }}
           value={groupNumber}
           onChangeText={setGroupNumber}
           keyboardType="numeric"
@@ -731,11 +1039,32 @@ export default function AddNewBaleScreen() {
         <TextInput
           className="border border-gray-300 rounded-lg px-4 py-3 text-base mb-4"
           placeholder="Lot Number"
+          placeholderTextColor="#9CA3AF"
+          style={{ color: '#111827' }}
           value={lotNumber}
           onChangeText={setLotNumber}
           keyboardType="numeric"
           editable={scannedCount < expectedCount}
         />
+
+        {/* Hessian dropdown */}
+        <View className="border border-gray-300 rounded-lg px-2 py-1 mb-4">
+          <Picker
+            selectedValue={sessionHessianId ?? ''}
+            onValueChange={(val) => {
+              setSessionHessianId(val);
+              const found = hessians.find((h) => h.id === val);
+              setSessionHessianName(found?.name || '');
+            }}
+            enabled={scannedCount < expectedCount}
+            Style={{ height: 50, color: sessionHessianId ? '#111827' : '#4B5563' }}
+          >
+            <Picker.Item label={sessionHessianName || 'Select Hessian'} value={sessionHessianId ?? ''} color="#9CA3AF" />
+            {hessians.map((h) => (
+              <Picker.Item key={h.id} label={`${h.name} (${h.hessian_id})`} value={h.id} color="#374151" />
+            ))}
+          </Picker>
+        </View>
 
        
         {/* Action Buttons - Side by Side */}
@@ -751,7 +1080,11 @@ export default function AddNewBaleScreen() {
               <ActivityIndicator color="white" size="small" />
             ) : (
               <Text className="text-white text-lg font-bold">
-                {scannedCount >= expectedCount ? 'All Bales Scanned' : 'Add Bale'}
+                {scannedCount >= expectedCount 
+                  ? 'All Bales Scanned' 
+                  : editingBaleId 
+                    ? 'Edit Bale' 
+                    : 'Add Bale'}
               </Text>
             )}
           </TouchableOpacity>
@@ -791,6 +1124,8 @@ export default function AddNewBaleScreen() {
           </View>
         )}
       </ScrollView>
+      </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }

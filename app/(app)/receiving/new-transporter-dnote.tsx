@@ -2,21 +2,39 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Save } from 'lucide-react-native';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
+import { DriverRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
 import { v4 as uuid } from 'uuid';
 import { Picker } from '@react-native-picker/picker';
 
 // A reusable input component for our form
-const FormInput = ({ label, value, onChangeText, placeholder, keyboardType = 'default' }) => (
+const FormInput = ({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType = 'default',
+  editable = true,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder: string;
+  keyboardType?: 'default' | 'numeric' | 'phone-pad';
+  editable?: boolean;
+}) => (
   <View className="mb-4">
     <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
     <TextInput
-      className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+      className={`border border-gray-300 rounded-lg p-3 text-base ${editable ? 'bg-gray-100' : 'bg-gray-200'}`}
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
+      placeholderTextColor="#9CA3AF"
+      style={{ color: '#111827' }}
       keyboardType={keyboardType}
+      editable={editable}
     />
   </View>
 );
@@ -26,8 +44,9 @@ const NewTransporterDNoteScreen = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   // Form state for all the fields from your Odoo form
+  const [selectedDriverId, setSelectedDriverId] = useState('');
   const [driverName, setDriverName] = useState('');
-  const [driverId, setDriverId] = useState('');
+  const [driverIdNumber, setDriverIdNumber] = useState('');
   const [driverCellphone, setDriverCellphone] = useState('');
   const [vehicleReg, setVehicleReg] = useState('');
   const [transporterName, setTransporterName] = useState('');
@@ -37,30 +56,49 @@ const NewTransporterDNoteScreen = () => {
   const [bank, setBank] = useState('');
   const [branch, setBranch] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [physicalDnote, setPhysicalDnote] = useState(''); // Note: 'physical_dnote_number' is not in the schema yet
+  const [physicalDnote, setPhysicalDnote] = useState(''); 
   const [creditors, setCreditors] = useState<{ id: string; name: string; creditor_number: string }[]>([]);
+  const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [selectedCreditorId, setSelectedCreditorId] = useState<string>('');
 
-  // Load creditors from local DB (synced from Odoo)
+  // Load creditors and drivers from local DB
   useEffect(() => {
-    const loadCreditors = async () => {
+    const fetchData = async () => {
       try {
-        // Adjust table/column names to your schema if different
-        const rows = await powersync.getAll<{ id: string; name: string; creditor_number: string }>(
+        const [credRows, driverRows] = await Promise.all([
+          powersync.getAll<{ id: string; name: string; creditor_number: string }>(
           "SELECT id, COALESCE(name, '') AS name, COALESCE(creditor_number, '') AS creditor_number FROM grower_creditors_creditor WHERE COALESCE(active, 1) = 1 ORDER BY creditor_number"
-        );
-        const cleaned = rows
+          ),
+          powersync.getAll<DriverRecord>('SELECT * FROM warehouse_driver ORDER BY name ASC')
+        ]);
+        
+        const cleanedCreds = credRows
           .filter(r => r && typeof r.id !== 'undefined')
           .map(r => ({ id: String(r.id), name: (r.name || '').trim(), creditor_number: (r.creditor_number || '').trim() }))
           .filter(r => r.name.length > 0);
-        setCreditors(cleaned);
+        
+        setCreditors(cleanedCreds);
+        setDrivers(driverRows);
       } catch (e) {
-        console.warn('Failed to load creditors list:', e);
-        setCreditors([]);
+        console.warn('Failed to load form data:', e);
       }
     };
-    loadCreditors();
+    fetchData();
   }, []);
+
+  const handleDriverChange = (val: string) => {
+    setSelectedDriverId(val);
+    const driver = drivers.find(d => String(d.id) === val);
+    if (driver) {
+      setDriverName(driver.name || '');
+      setDriverIdNumber(driver.national_id || '');
+      setDriverCellphone(driver.cellphone || '');
+    } else {
+      setDriverName('');
+      setDriverIdNumber('');
+      setDriverCellphone('');
+    }
+  };
 
   // When a creditor is selected, set display name and creditor number
   useEffect(() => {
@@ -94,13 +132,11 @@ const NewTransporterDNoteScreen = () => {
     setIsSaving(true);
 
     try {
-      // NOTE: We only save the fields that currently exist in your Schema.ts file.
-      // Fields like 'creditor' and 'physical_dnote_number' are in the UI but will not be saved
-      // until the schema is updated to include them.
       const newRecord = {
         id: uuid(),
+        driver_id: selectedDriverId ? Number(selectedDriverId) : null,
         name: trimmedDriver,
-        id_number: driverId.trim(),
+        id_number: driverIdNumber.trim(),
         cellphone: driverCellphone.trim(),
         vehicle_registration: trimmedVehicle,
         transporter_name: transporterName.trim(),
@@ -150,18 +186,33 @@ const NewTransporterDNoteScreen = () => {
               <Picker
                 selectedValue={selectedCreditorId}
                 onValueChange={(val) => setSelectedCreditorId(String(val || ''))}
+                style={{ height: 50, color: selectedCreditorId ? '#111827' : '#4B5563' }}
               >
-                <Picker.Item label="-- Select Creditor Number --" value="" />
+                <Picker.Item label="-- Select Creditor Number --" value="" color="#9CA3AF" />
                 {creditors.map((c) => (
-                  <Picker.Item key={c.id} label={c.creditor_number || c.name} value={c.id} />
+                  <Picker.Item key={c.id} label={c.creditor_number || c.name} value={c.id} color="#374151" />
                 ))}
               </Picker>
             </View>
           </View>
           {/* Display the resolved creditor number (read-only, driven by selection) */}
-          <FormInput label="Driver Name" value={driverName} onChangeText={setDriverName} placeholder="e.g., John Doe" />
-          <FormInput label="Driver ID Number" value={driverId} onChangeText={setDriverId} placeholder="e.g., 63-1234567 A 00" />
-          <FormInput label="Driver Cellphone" value={driverCellphone} onChangeText={setDriverCellphone} placeholder="e.g., 0777123456" keyboardType="phone-pad" />
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Driver</Text>
+            <View className="bg-gray-100 border border-gray-300 rounded-lg">
+              <Picker
+                selectedValue={selectedDriverId}
+                onValueChange={handleDriverChange}
+                style={{ height: 50, color: selectedDriverId ? '#111827' : '#4B5563' }}
+              >
+                <Picker.Item label="-- Select Driver --" value="" color="#9CA3AF" />
+                {drivers.map((d) => (
+                  <Picker.Item key={String(d.id)} label={d.name || ''} value={String(d.id)} color="#374151" />
+                ))}
+              </Picker>
+            </View>
+          </View>
+          <FormInput label="Driver National ID" value={driverIdNumber} onChangeText={setDriverIdNumber} placeholder="e.g., 63-1234567 A 00" editable={!selectedDriverId} />
+          <FormInput label="Driver Cellphone" value={driverCellphone} onChangeText={setDriverCellphone} placeholder="e.g., 0777123456" keyboardType="phone-pad" editable={!selectedDriverId} />
         </View>
 
         <View className="mb-6 p-4 bg-gray-50 rounded-lg">

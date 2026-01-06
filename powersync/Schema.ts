@@ -849,20 +849,27 @@ const grower_application_drafts = new Table({
   localOnly: true // This is local-only data, not synced to server
 });
 
-
-
-
-
-
-
-
-// --- start of receiving tables ---
+// Local-only table to store sync logs for diagnostics
+const system_logs = new Table({
+  id: column.text, // UUID for the log entry
+  created_at: column.text, // ISO 8601 timestamp
+  last_seen_at: column.text, // ISO 8601 timestamp of the last time this error occurred
+  retry_count: column.integer, // Number of times this error has been retried
+  type: column.text, // 'success' or 'error'
+  message: column.text, // Summary message
+  table_name: column.text, // The table being synced
+  record_id: column.text, // The ID of the record being synced
+  details: column.text, // Full JSON payload or error details
+}, {
+  localOnly: true // This table does not sync
+});
 
 const receiving_transporter_delivery_note = new Table(
   {
     // Odoo model: receiving.transporter_delivery_note
     // Fields from both receiving_curverid and receiving_boka
     document_number: column.text,
+    driver_id: column.integer,
     name: column.text, // Driver Name
     id_number: column.text,
     vehicle_registration: column.text,
@@ -910,6 +917,7 @@ const receiving_grower_delivery_note = new Table({
   laying_status: column.text,
   booked_at: column.text, // Datetime
   has_been_booked: column.integer, // Boolean
+  has_been_printed: column.integer, // Boolean
   highest_lot: column.integer,
   lowest_lot: column.integer,
   bales_to_lay: column.text,
@@ -943,6 +951,377 @@ const sequencing_session_drafts = new Table({
   submitted_by: column.text,
 }, {
   localOnly: true
+});
+
+const floor_dispatch_note = new Table({
+  // Odoo model: floor_dispatch.note
+  name: column.text, // Dispatch note name/reference
+  reference: column.text,
+  origin_id: column.integer,
+  warehouse_destination_id: column.integer,
+  transport_id: column.integer,
+  product_id: column.integer,
+  truck_reg_number: column.text,
+  driver_id: column.integer,
+  driver_name: column.text,
+  driver_national_id: column.text,
+  driver_cellphone: column.text,
+  state: column.text,
+  create_date: column.text,
+  write_date: column.text,
+  mobile_app_id: column.text,
+  has_been_printed: column.integer, // Boolean
+});
+
+const floor_dispatch_bale = new Table({
+  // Odoo model: floor_dispatch.bale
+  id: column.text,
+  dispatch_note_id: column.text,
+  receiving_bale_id: column.text,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const floor_dispatch_note_line = new Table({
+  // Odoo model: floor_dispatch.note.line
+  dispatch_note_id: column.text,
+  receiving_bale_id: column.text,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_warehouse = new Table({
+  // Odoo model: warehouse.warehouse
+  name: column.text,
+  code: column.text,
+  packing_warehouse_id: column.integer,
+  display_name: column.text,
+  warehouse_type: column.text,
+});
+
+const warehouse_product = new Table({
+  // Odoo model: warehouse.product
+  name: column.text,
+  default_receiving_weight: column.real,
+});
+
+const warehouse_instruction = new Table({
+  // Odoo model: warehouse.instruction
+  name: column.text,
+  status: column.text,
+  total_allocated_mass: column.real,
+  total_used_mass: column.real,
+  total_remaining_mass: column.real,
+  is_exhausted: column.integer, // Boolean
+});
+
+const warehouse_instruction_line = new Table({
+  // Odoo model: warehouse.instruction_line
+  instruction_id: column.integer,
+  product_id: column.integer,
+  grade_id: column.integer,
+  total_mass: column.real,
+  used_mass: column.real,
+  remaining_mass: column.real,
+  commercial_target_mass: column.real,
+  small_scale_target_mass: column.real,
+  auction_target_mass: column.real,
+});
+
+const warehouse_driver = new Table({
+  // Odoo model: warehouse.driver
+  name: column.text,
+  national_id: column.text,
+  cellphone: column.text,
+  active: column.integer, // Boolean
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_bale_grade = new Table({
+  // Odoo model: warehouse.bale_grade
+  name: column.text,
+  product_id: column.integer,
+});
+
+const warehouse_transport = new Table({
+  // Odoo model: warehouse.transport
+  name: column.text,
+});
+
+const warehouse_location = new Table({
+  // Odoo model: warehouse.location
+  name: column.text,
+  warehouse_id: column.integer,
+  default_location: column.integer, // Boolean in Odoo
+  active: column.integer,
+  display_name: column.text,
+  grade_id: column.integer,
+  location_type: column.text, // Selection: 'stack', 'floor_area', 'receiving_area', 'view'
+  parent_location: column.integer,
+});
+
+const warehouse_delivery_note = new Table({
+  // Odoo model: warehouse.delivery_note
+  origin: column.text,
+  destination_id: column.integer,
+  truck_reg_number: column.text,
+  transport_id: column.integer,
+  driver_name: column.text,
+  product_id: column.integer,
+  driver_national_id: column.text,
+  driver_cellphone: column.text,
+  reference: column.text,
+  truck_reg: column.text,
+  dnote_number: column.text,
+  dnote_date: column.text,
+  state: column.text,
+  mass_discrepancy: column.integer,
+  total_bales: column.integer,
+  received_bales: column.integer,
+  shipped_mass: column.real,
+  received_mass: column.real,
+  stacked_mass: column.real,
+  total_stacked: column.integer,
+  active: column.integer,
+  origin_document: column.text,
+  manual_bale_resoled: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+  mobile_app_id: column.text,
+});
+
+const warehouse_delivery_bales = new Table({
+  // Odoo model: warehouse.delivery_bales
+  delivery_note_id: column.integer,
+  shipped_bale_id: column.integer,
+  pallet_id: column.integer,
+  barcode: column.text,
+  logistics_barcode: column.text,
+  lot_number: column.text,
+  mass: column.real,
+  received_mass: column.real,
+  grower_number: column.text,
+  warehouse_id: column.integer,
+  received: column.integer, // Boolean
+  received_date_time: column.text,
+  received_by: column.integer,
+  stock_status: column.text,
+  operation_type: column.text,
+  manual_bale_resolved: column.integer, // Boolean
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_shipped_bale = new Table({
+  // Odoo model: warehouse.shipped_bale
+  pallet_id: column.integer,
+  barcode: column.text,
+  logistics_barcode: column.text,
+  returned: column.integer, // Boolean
+  location_id: column.integer,
+  product_id: column.integer,
+  grade: column.integer,
+  original_grade: column.integer,
+  lot_number: column.text,
+  mass: column.real,
+  received_mass: column.real,
+  price: column.real,
+  grower_number: column.text,
+  warehouse_id: column.integer,
+  dispatched: column.integer, // Boolean
+  received: column.integer, // Boolean
+  received_date_time: column.text,
+  received_by: column.integer,
+  stacked_by: column.integer,
+  dispatch_date_time: column.text,
+  stack_date_time: column.text,
+  dispatched_by_id: column.integer,
+  transfered_by: column.integer,
+  transfered_date_time: column.text,
+  stock_status: column.text,
+  origin_document: column.text,
+  operation_type: column.text,
+  operation_no: column.text,
+  tobacco_type: column.text,
+  pickings_weight: column.real,
+  amount: column.real,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_pallet = new Table({
+  // Odoo model: warehouse.pallet
+  barcode: column.text,
+  logistics_barcode: column.text,
+  pallet_capacity: column.integer,
+  grade_id: column.integer,
+  current_load: column.integer,
+  warehouse_id: column.integer,
+  location_id: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_data_capturing = new Table({
+  // Odoo model: warehouse.data_capturing
+  barcode: column.text,
+  product_id: column.integer,
+  grade: column.integer,
+  mass: column.real,
+  price: column.real,
+  operation_no: column.text,
+  tobacco_type: column.text,
+  pickings_weight: column.real,
+  amount: column.real,
+  existing_bale_id: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_missing_dnote = new Table({
+  // Odoo model: warehouse.missing_dnote
+  reference: column.text,
+  origin: column.text,
+  dispatch_note_id: column.integer,
+  warehouse_source_id: column.integer,
+  warehouse_destination_id: column.integer,
+  dnote_date: column.text,
+  truck_reg_number: column.text,
+  transport_id: column.integer,
+  driver_name: column.text,
+  driver_national_id: column.text,
+  driver_cellphone: column.text,
+  total_bales: column.integer,
+  received_bales: column.integer,
+  shipped_mass: column.real,
+  received_mass: column.real,
+  total_stacked: column.real,
+  stacked_mass: column.real,
+  receipt_type: column.text,
+  state: column.text,
+  active: column.integer,
+  create_date: column.text,
+  write_date: column.text,
+  mobile_app_id: column.text,
+});
+
+const warehouse_missing_shipped_bale = new Table({
+  // Odoo model: warehouse.missing_shipped_bale
+  missing_dnote_id: column.integer,
+  barcode: column.text,
+  grade: column.integer,
+  original_grade: column.integer,
+  lot_number: column.text,
+  mass: column.real,
+  received: column.integer, // Boolean
+  received_mass: column.real,
+  price: column.integer,
+  grower_number: column.text,
+  location_id: column.integer,
+  warehouse_id: column.integer,
+  pallet_id: column.integer,
+  recipt_note_number: column.text,
+  received_date_time: column.text,
+  received_by: column.integer,
+  stacked_by: column.integer,
+  stack_date_time: column.text,
+  transfered_by: column.integer,
+  transfered_date_time: column.text,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_audit_shipped_bale = new Table({
+  // Odoo model: warehouse.audit_shipped_bale
+  barcode: column.text,
+  buyer_id: column.integer,
+  logistics_barcode: column.text,
+  recipt_note_number: column.text,
+  returned: column.integer, // Boolean
+  grade: column.integer,
+  location_id: column.integer,
+  pallet_id: column.integer,
+  original_grade: column.integer,
+  lot_number: column.text,
+  mass: column.real,
+  received_mass: column.real,
+  price: column.integer,
+  grower_number: column.text,
+  warehouse_id: column.integer,
+  received: column.integer, // Boolean
+  received_date_time: column.text,
+  received_by: column.integer,
+  stacked_by: column.integer,
+  stock_status: column.text,
+  dispatch_date_time: column.text,
+  dispatched_by_id: column.integer,
+  stack_date_time: column.text,
+  dispatched: column.integer, // Boolean
+  transfered_by: column.integer,
+  transfered_date_time: column.text,
+  origin_document: column.text,
+  operation_type: column.text,
+  product_id: column.integer,
+  product_technical_name: column.text,
+  audited_field: column.text,
+  audit_action: column.text,
+  audit_date: column.text,
+  audit_user: column.integer,
+  original_record_id: column.integer,
+  operation_no: column.text,
+  tobacco_type: column.text,
+  pickings_weight: column.real,
+  amount: column.real,
+  warehouse_name: column.text, // Computed/related field for display
+  location_name: column.text, // Computed/related field for display
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const warehouse_dispatch_note = new Table({
+  // Odoo model: warehouse.dispatch_note
+  reference: column.text,
+  warehouse_source_id: column.integer,
+  warehouse_destination_id: column.integer,
+  product_id: column.integer,
+  instruction_id: column.integer,
+  transport_id: column.integer,
+  truck_reg: column.text,
+  truck_reg_number: column.text,
+  driver_id: column.integer,
+  driver_name: column.text,
+  driver_national_id: column.text,
+  driver_cellphone: column.text,
+  dispatch_type: column.text,
+  shipped_bales: column.integer,
+  shipped_mass: column.real,
+  received_bales: column.integer,
+  received_mass: column.real,
+  stacked_mass: column.real,
+  total_stacked: column.real,
+  state: column.text,
+  create_date: column.text,
+  write_date: column.text,
+  mobile_app_id: column.text,
+});
+
+const warehouse_dispatch_bale = new Table({
+  // Odoo model: warehouse.dispatch_bale
+  id: column.text,
+  dispatch_note_id: column.text,
+  receiving_bale_id: column.text,
+  shipped_bale_id: column.integer,
+  shipped_pallet_id: column.integer,
+  warehouse_destination_id: column.integer,
+  barcode: column.text,
+  logistics_barcode: column.text,
+  shipped_mass: column.real,
+  state: column.text,
+  origin_document: column.text,
+  create_date: column.text,
+  write_date: column.text,
+  mobile_app_id: column.text,
 });
 
 const receiving_bale = new Table(
@@ -1004,7 +1383,8 @@ const receiving_bale = new Table(
     auto_buyer: column.integer,
     floor_clearing: column.text,
     luggagetag: column.text,
-    curverid_buyer_number: column.text,
+    curverid_buyer_number: column.integer,
+    curverid_classifier_number: column.integer,
     curverid_ntrm_number: column.text,
     curverid_buyer_grade: column.text,
     curverid_timb_grade: column.text,
@@ -1041,19 +1421,24 @@ const receiving_curverid_row_management = new Table({
 // Bale sequencing model - synced to server via PowerSync Connector
 // Records are created locally and uploaded to server via unified_create endpoint
 const receiving_curverid_bale_sequencing_model = new Table({
-  id: column.text,
-  document_number: column.text,
-  grower_delivery_note_id: column.text,
-  scale_barcode: column.text,
-  barcode: column.text,
-  row: column.integer,
-  lay: column.text,
+  id: column.text, // Mapped from bale_id in sync rules.
+  bale_id: column.integer,
   selling_point_id: column.integer,
   floor_sale_id: column.integer,
-  scan_date: column.text,
-  scan_datetime: column.text,
-  create_date: column.text,
-  write_date: column.text
+  row: column.integer,
+  sequence: column.integer,
+  scanned_by: column.integer,
+  group_number: column.integer,
+  delivery_note_id: column.integer,
+  create_uid: column.integer,
+  write_uid: column.integer,
+  lay: column.text,
+  barcode: column.text,
+  grower_number: column.text,
+  mobile_scanned_by_id: column.integer, // Mobile user ID who scanned on the device
+  mobile_scanned_by_name: column.text, // Mobile user name who scanned on the device
+  create_date: column.text, // Standard Odoo field, for local creation
+  write_date: column.text  // Standard Odoo field, for local creation
 });
 
 const receiving_boka_transporter_delivery_note_line = new Table({
@@ -1071,6 +1456,7 @@ const receiving_boka_transporter_delivery_note_line = new Table({
   preferred_sale_date: column.text, // Date
   state: column.text,
   active: column.integer, // Boolean
+  has_been_printed: column.integer, // Boolean
   grower_delivery_note_id: column.integer,
   create_uid: column.integer,
   write_uid: column.integer,
@@ -1078,28 +1464,46 @@ const receiving_boka_transporter_delivery_note_line = new Table({
   write_date: column.text,
 });
 
-const floor_maintenance_selling_point = new Table({
-  // Odoo model: floor_maintenance.selling_point
-  name: column.text,
-  active: column.integer, // Boolean
+const floor_maintenance_selling_point = new Table(
+  {
+    // Odoo model: floor_maintenance.selling_point
+    name: column.text,
+    active: column.integer, // Boolean
+    default: column.integer, // Boolean
+    create_date: column.text,
+    write_date: column.text,
+  },
+  { indexes: {} }
+);
+
+const floor_maintenance_sale_date_receiving = new Table({
+  // Odoo model: floor_maintenance.sale_date_receiving
+  sale_date: column.text,
+  bale_capacity: column.integer,
+  current_booked_bales: column.integer,
   create_date: column.text,
   write_date: column.text,
 });
 
-const floor_maintenance_floor_sale = new Table({
-  // Odoo model: floor_maintenance.floor_sale
-  name: column.text,
-  sale_point_id: column.integer, // This links it to the selling_point
-  sale_date: column.text, // Date
-  active: column.integer, // Boolean
-  create_date: column.text,
-  write_date: column.text,
-});
+const floor_maintenance_floor_sale = new Table(
+  {
+    // Odoo model: floor_maintenance.floor_sale
+    name: column.text,
+    sale_point_id: column.integer, // This links it to the selling_point
+    sale_date: column.text, // Date
+    active: column.integer, // Boolean
+    create_date: column.text,
+    write_date: column.text,
+  },
+  { indexes: {} }
+);
 
 const floor_maintenance_timb_grade = new Table(
   {
     // Odoo model: floor_maintenance.timb_grade
     name: column.text,
+    grade_type: column.text,
+    action_type: column.text, // Added this line
     create_date: column.text,
     write_date: column.text,
   },
@@ -1110,6 +1514,7 @@ const buyers_buyer = new Table({
   // Odoo model: buyers.buyer
   name: column.text,
   buyer_code: column.text,
+  packing_warehouse_id: column.integer,
   create_date: column.text,
   write_date: column.text,
 });
@@ -1122,11 +1527,36 @@ const buyers_grade = new Table({
   write_date: column.text,
 });
 
+const buyers_classifier = new Table({
+  // Odoo model: buyers.classifier
+  classifier_number: column.text,
+  firstname: column.text,
+  surname: column.text,
+  buyer_number: column.text,
+  create_date: column.text,
+  write_date: column.text,
+});
+
+const buyers_buying_staff = new Table({
+  // Odoo model: buyers.buying.staff
+  buyer_number: column.text,
+  firstname: column.text,
+  surname: column.text,
+  create_date: column.text,
+  write_date: column.text,
+});
+
 const data_processing_salecode = new Table({
   // Odoo model: data_processing.salecode
   name: column.text,
   create_date: column.text,
   write_date: column.text,
+});
+
+const data_processing_salesmaster = new Table({
+  // Odoo model: data_processing.salesmaster
+  name: column.text,
+  state: column.text
 });
 
 const receiving_hessian = new Table({
@@ -1226,16 +1656,42 @@ export const AppSchema = new Schema({
   receiving_curverid_bale_sequencing_model,
   receiving_boka_transporter_delivery_note_line,
   floor_maintenance_selling_point,
+  floor_maintenance_sale_date_receiving,
   floor_maintenance_floor_sale,
   floor_maintenance_timb_grade,
   buyers_buyer,
   buyers_grade,
+  buyers_classifier,
+  buyers_buying_staff,
   data_processing_salecode,
+  data_processing_salesmaster,
   receiving_hessian,
   floor_maintenance_bale_location,
   receiving_ticket_printing_batch,
   receiving_grower_bookings,
-  sequencing_session_drafts
+  sequencing_session_drafts,
+  system_logs,
+  floor_dispatch_note,
+  floor_dispatch_bale,
+  floor_dispatch_note_line,
+  warehouse_warehouse,
+  warehouse_location,
+  warehouse_product,
+  warehouse_instruction,
+  warehouse_instruction_line,
+  warehouse_driver,
+  warehouse_bale_grade,
+  warehouse_transport,
+  warehouse_delivery_note,
+  warehouse_dispatch_note,
+  warehouse_dispatch_bale,
+  warehouse_delivery_bales,
+  warehouse_shipped_bale,
+  warehouse_pallet,
+  warehouse_data_capturing,
+  warehouse_missing_dnote,
+  warehouse_missing_shipped_bale,
+  warehouse_audit_shipped_bale
 });
 
 
@@ -1283,13 +1739,31 @@ export type BaleRecord = Database['receiving_bale'];
 export type RowManagementRecord = Database['receiving_curverid_row_management'];
 export type TransporterDeliveryNoteLineRecord = Database['receiving_boka_transporter_delivery_note_line'];
 export type SellingPointRecord = Database['floor_maintenance_selling_point'];
+export type SaleDateReceivingRecord = Database['floor_maintenance_sale_date_receiving'];
 export type FloorSaleRecord = Database['floor_maintenance_floor_sale'];
 export type TimbGradeRecord = Database['floor_maintenance_timb_grade'];
 export type BuyerRecord = Database['buyers_buyer'];
 export type BuyerGradeRecord = Database['buyers_grade'];
+export type BuyerClassifierRecord = Database['buyers_classifier'];
+export type BuyerBuyingStaffRecord = Database['buyers_buying_staff'];
 export type SaleCodeRecord = Database['data_processing_salecode'];
+export type SalesMasterRecord = Database['data_processing_salesmaster'];
 export type HessianRecord = Database['receiving_hessian'];
 export type BaleLocationRecord = Database['floor_maintenance_bale_location'];
 export type TicketPrintingBatchRecord = Database['receiving_ticket_printing_batch'];
 export type GrowerBookingsRecord = Database['receiving_grower_bookings'];
 export type SequencingSessionDraftRecord = Database['sequencing_session_drafts'];
+export type SystemLogRecord = Database['system_logs'];
+
+// New dispatch types
+export type FloorDispatchNoteRecord = Database['floor_dispatch_note'];
+export type FloorDispatchBaleRecord = Database['floor_dispatch_bale'];
+export type FloorDispatchNoteLineRecord = Database['floor_dispatch_note_line'];
+export type WarehouseDispatchNoteRecord = Database['warehouse_dispatch_note'];
+export type WarehouseDispatchBaleRecord = Database['warehouse_dispatch_bale'];
+export type WarehouseRecord = Database['warehouse_warehouse'];
+export type ProductRecord = Database['warehouse_product'];
+export type TransportRecord = Database['warehouse_transport'];
+export type InstructionRecord = Database['warehouse_instruction'];
+export type InstructionLineRecord = Database['warehouse_instruction_line'];
+export type DriverRecord = Database['warehouse_driver'];

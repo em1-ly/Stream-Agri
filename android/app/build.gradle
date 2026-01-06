@@ -86,9 +86,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'emily_marimo.tobaccologistics'
+    namespace 'com.emilymarimo.tobaccologistics'
     defaultConfig {
-        applicationId 'emily_marimo.tobaccologistics'
+        applicationId 'com.emilymarimo.tobaccologistics'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

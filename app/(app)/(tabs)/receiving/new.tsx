@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert, Modal, Button, Image } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { ChevronLeft, MapPinPlus, Pencil, X, Camera, CalendarIcon } from 'lucide-react-native';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { Picker } from '@react-native-picker/picker';
 import { GrowerApplicationDraftRecord } from '@/powersync/Schema';
 // import * as Location from 'expo-location';
@@ -720,9 +720,10 @@ export default function NewGrowerApplicationModal() {
                     <Picker
                       selectedValue={productionScheme}
                       onValueChange={(itemValue) => setProductionScheme(itemValue)}
+                      style={{ color: '#111827' }}
                     >
                       {productionSchemeList.map((item: any) => (
-                        <Picker.Item key={item.id} label={item.name} value={item.id} />
+                        <Picker.Item key={item.id} label={item.name} value={item.id} color="#374151" />
                       ))}
 
                     </Picker>
@@ -734,9 +735,10 @@ export default function NewGrowerApplicationModal() {
                     <Picker
                       selectedValue={productionCycle}
                       onValueChange={(itemValue) => setProductionCycle(itemValue)}
+                      style={{ color: '#111827' }}
                     >
                       {productionCycleList.map((item: any) => (
-                        <Picker.Item key={item.id} label={item.name} value={item.id} />
+                        <Picker.Item key={item.id} label={item.name} value={item.id} color="#374151" />
                       ))}
                     </Picker>
                     </View>
@@ -760,13 +762,14 @@ export default function NewGrowerApplicationModal() {
                     <Picker
                       selectedValue={region}
                       onValueChange={(itemValue) => setRegion(itemValue)}
+                      style={{ color: '#111827' }}
                     >
                       {regionList.length > 0 ? (
                         regionList.map((item: any) => (
-                          <Picker.Item key={item.id} label={item.name} value={item.id} />
+                          <Picker.Item key={item.id} label={item.name} value={item.id} color="#374151" />
                         ))
                       ) : (
-                        <Picker.Item label="No regions assigned" value="" />
+                        <Picker.Item label="No regions assigned" value="" color="#9CA3AF" />
                       )}
                       </Picker>
                     </View>
@@ -777,9 +780,10 @@ export default function NewGrowerApplicationModal() {
                     <Picker
                       selectedValue={activity}
                       onValueChange={(itemValue) => setActivity(itemValue)}
+                      style={{ color: '#111827' }}
                     >
                       {activityList.map((item: any) => (
-                        <Picker.Item key={item.id} label={item.name} value={item.id} />
+                        <Picker.Item key={item.id} label={item.name} value={item.id} color="#374151" />
                       ))}
                       </Picker>
                     </View>
@@ -895,9 +899,10 @@ export default function NewGrowerApplicationModal() {
                     <Picker
                       selectedValue={gender}
                       onValueChange={(itemValue) => setGender(itemValue)}
+                      style={{ color: '#111827' }}
                     >
-                      <Picker.Item key="male" label="Male" value="male" />
-                      <Picker.Item key="female" label="Female" value="female" />
+                      <Picker.Item key="male" label="Male" value="male" color="#374151" />
+                      <Picker.Item key="female" label="Female" value="female" color="#374151" />
                     </Picker>
                     </View>
                 </View>

@@ -29,8 +29,8 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="myapp"/>
-        <data android:scheme="emily_marimo.tobaccologistics"/>
-        <data android:scheme="exp+tobacco-logistics"/>
+        <data android:scheme="com.emilymarimo.tobaccologistics"/>
+        <data android:scheme="exp+odoo-androidddd2"/>
       </intent-filter>
     </activity>
   </application>

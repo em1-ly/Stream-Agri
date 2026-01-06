@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Button, TextInput, ActivityIndicator, Alert } from "react-native"
+import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Button, TextInput, ActivityIndicator, Alert, Keyboard } from "react-native"
 import {Image} from "expo-image"
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Github, Twitter, Settings, Database, Wifi, Phone } from "lucide-react-native"
 import { useSession } from "../../authContext"
@@ -10,7 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import { exportDatabase } from "../../export-db"
 // import { useSQLiteContext } from "expo-sqlite"
 import { useNetwork } from "@/NetworkContext"
-import { powersync, setupPowerSync } from "@/powersync/system"
+import { powersync, setupPowerSync } from "@/powersync/setup"
 import { Connector } from "@/powersync/Connector"
 
 interface LoginScreenProps {
@@ -43,6 +43,7 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncStatusText, setSyncStatusText] = useState("")
   const [needsInitialSync, setNeedsInitialSync] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   
   const { logIn, localLogin, error: authError } = useSession()
   const router = useRouter()
@@ -54,6 +55,27 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
   }
 
   const { isConnected } = useNetwork()
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   useEffect(() => {
     setupPowerSync();
@@ -97,6 +119,7 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
     setDownloadProgress(5);
 
     const connector = new Connector();
+    let maxProgress = 5; // Track maximum progress to prevent going backwards
     
     const unregister = powersync.registerListener({
       statusChanged: (status) => {
@@ -104,6 +127,8 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
         
         // Update progress bar - downloadProgress is nested in dataFlow
         const statusAny = status as any; // Cast to bypass TypeScript restrictions
+        
+        let newProgress = maxProgress; // Start with current max
         
         if (status.connected) {
           if (statusAny.dataFlow?.downloading && statusAny.dataFlow?.downloadProgress) {
@@ -121,20 +146,30 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
               if (progressValue > 1) progressValue = progressValue / 100; // Convert if percentage
             }
             
-            setDownloadProgress(progressValue * 100);
+            // Map download progress to 20-90% range (reserve 5-20% for connection, 90-100% for completion)
+            newProgress = Math.max(maxProgress, 20 + (progressValue * 70));
             setSyncStatusText(`Downloading data... ${Math.round(progressValue * 100)}%`);
-            console.log(`📊 Progress: ${Math.round(progressValue * 100)}%`);
+            console.log(`📊 Progress: ${Math.round(newProgress)}%`);
             
-          } else if (status.connected && !status.lastSyncedAt && !statusAny.dataFlow?.downloading) {
+          } else if (status.connected && !status.lastSyncedAt) {
+            // Connected but not synced yet - gradually increase from 10% to 20%
+            newProgress = Math.max(maxProgress, 15);
             setSyncStatusText("Connected, preparing to sync...");
-            setDownloadProgress(10);
-          } else if (status.connected && !statusAny.dataFlow?.downloading) {
+          } else if (status.connected) {
+            // Connected and syncing but no download progress yet
+            newProgress = Math.max(maxProgress, 20);
             setSyncStatusText("Connected, syncing...");
-            setDownloadProgress(20);
           }
         } else {
+          // Not connected - keep at 5% but don't reset if we've made progress
+          newProgress = Math.max(maxProgress, 5);
           setSyncStatusText("Connecting to PowerSync...");
-          setDownloadProgress(5);
+        }
+        
+        // Only update if progress increased
+        if (newProgress > maxProgress) {
+          maxProgress = newProgress;
+          setDownloadProgress(newProgress);
         }
         
         // Sync complete when connected and has synced data
@@ -142,6 +177,7 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
           console.log('✅ PowerSync connected and synced - sync complete');
           setSyncStatusText("Sync complete! Redirecting...");
           setDownloadProgress(100);
+          maxProgress = 100;
           
           setTimeout(() => {
             setIsSyncing(false);
@@ -326,11 +362,23 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
 
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : undefined} 
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
       <ScrollView
-        className="flex-1 px-6"
-        contentContainerClassName="flex-grow justify-center"
-        showsVerticalScrollIndicator={false}
+        style={{ flex: 1, paddingHorizontal: 24 }}
+        contentContainerStyle={isKeyboardVisible ? {
+          paddingVertical: 40,
+          paddingBottom: 400
+        } : {
+          flexGrow: 1,
+          justifyContent: 'center',
+          paddingVertical: 20
+        }}
+        scrollEnabled={isKeyboardVisible}
+        showsVerticalScrollIndicator={isKeyboardVisible}
         keyboardShouldPersistTaps="handled"
       >
         <View className="items-center mb-10 mt-10">
@@ -385,7 +433,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 onChangeText={setPhoneNumber} 
                 keyboardType="phone-pad" 
                 placeholder="Enter Phone Number"
+                placeholderTextColor="#9CA3AF"
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
                 autoCapitalize="none"
               />
             </View>
@@ -396,8 +446,10 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
                 value={password} 
                 onChangeText={setPassword}  
                 placeholder="Password" 
+                placeholderTextColor="#9CA3AF"
                 secureTextEntry={!showPassword}
                 className="flex-1 p-3.5"
+                style={{ color: '#111827' }}
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                 {showPassword ? (

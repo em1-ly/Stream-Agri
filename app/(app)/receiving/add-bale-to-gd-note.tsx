@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Keyboard } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { Search, Camera } from 'lucide-react-native';
+import { Search, Camera, ChevronLeft } from 'lucide-react-native';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
-import { powersync } from '@/powersync/system';
+import { powersync, setupPowerSync } from '@/powersync/setup';
 import { GrowerDeliveryNoteRecord, HessianRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
 
@@ -59,20 +59,40 @@ export default function AddBaleToGDNoteScreen() {
   const [scaleBarcode, setScaleBarcode] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [groupNumber, setGroupNumber] = useState('');
-  const [hessian, setHessian] = useState('');
-  const [hessianId, setHessianId] = useState<string | number | null>(null);
-  const [hessians, setHessians] = useState<{ id: number; name: string; hessian_id: string }[]>([]);
   const [location, setLocation] = useState('');
   const [locationId, setLocationId] = useState<string | number | null>(null);
   const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [showLocationPicker, setShowLocationPicker] = useState(false); // no longer used with dropdown
   const [isClosing, setIsClosing] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const toInt = (val: string) => {
     const n = parseInt((val || '').trim(), 10);
     return isNaN(n) ? null : n;
   };
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   const validateBaleEntry = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
     const errors: string[] = [];
@@ -93,10 +113,6 @@ export default function AddBaleToGDNoteScreen() {
       errors.push('Please enter a Group Number');
     } else if (toInt(groupNumber) === null) {
       errors.push('Please enter an integer for group number');
-    }
-    // 5) Hessian validation
-    if (!hessian.trim()) {
-      errors.push('Please select a Hessian');
     }
     // 8) Existing bale associations
     if (scaleBarcode) {
@@ -135,9 +151,9 @@ export default function AddBaleToGDNoteScreen() {
           [growerNote.id, growerNote.document_number]
         );
         const actual = (countRows && countRows[0]?.count) || 0;
-        const expected = growerNote.number_of_bales_delivered || 0;
-        if (actual >= expected) {
-          errors.push(`Cannot add more bales: Already scanned ${actual} out of ${expected} expected bales`);
+      const expected = growerNote.number_of_bales_delivered || 0;
+      if (actual >= expected) {
+        errors.push(`Cannot add more bales: Already scanned ${actual} out of ${expected} expected bales`);
         }
       } catch (e) {
         errors.push('Could not verify scanned bale count (local DB error).');
@@ -198,20 +214,6 @@ export default function AddBaleToGDNoteScreen() {
     }
   }, [params.scannedBaleBarcode]);
 
-  // Load available hessians from Odoo (via PowerSync) once
-  useEffect(() => {
-    const loadHessians = async () => {
-      try {
-        const rows = await powersync.getAll<{ id: number; name: string; hessian_id: string }>(
-          'SELECT id, name, hessian_id FROM receiving_hessian WHERE COALESCE(active, 1) = 1 ORDER BY name'
-        );
-        setHessians(rows as any);
-      } catch (e) {
-        // ignore if table not present
-      }
-    };
-    loadHessians();
-  }, []);
 
   // Load available locations from Odoo (via PowerSync) once
   useEffect(() => {
@@ -258,10 +260,10 @@ export default function AddBaleToGDNoteScreen() {
                 );
                 console.log('📦 Refreshed bale count:', baleCount?.count || 0);
                 
-                setGrowerNote({
-                  ...updatedResult,
+              setGrowerNote({
+                ...updatedResult,
                   number_of_bales: baleCount?.count || 0
-                });
+              });
               } catch (countError) {
                 // silently ignore counting errors on refresh
                 setGrowerNote(updatedResult);
@@ -299,17 +301,15 @@ export default function AddBaleToGDNoteScreen() {
   };
 
   const handleNavigateToAddBale = () => {
-    if (!hessianId || !locationId) {
-      Alert.alert('Configuration Incomplete', 'Please select both a Hessian and a Location before adding bales.');
+    if (!locationId) {
+      Alert.alert('Configuration Incomplete', 'Please select a Location before adding bales.');
       return;
     }
     router.push({
       pathname: '/receiving/add-new-bale',
       params: { 
         documentNumber: documentNumber,
-        hessianId: hessianId,
         locationId: locationId,
-        hessianName: hessian,
         locationName: location
       }
     });
@@ -337,26 +337,6 @@ export default function AddBaleToGDNoteScreen() {
         console.log('🆔 Delivery Note ID:', result.id);
         console.log('📄 Document Number:', result.document_number);
         
-        // Count actual bales in the database for this delivery note
-        try {
-          console.log('🔍 Counting bales in database...');
-          const baleCount = await powersync.get<{ count: number }>(
-            'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
-            [result.id, result.document_number]
-          );
-          console.log('📦 Actual bale count in database:', baleCount?.count || 0);
-          console.log('📦 Full baleCount object:', baleCount);
-    
-          
-          // Update the result with the actual scanned count
-          if (baleCount) {
-            result.number_of_bales = baleCount.count;
-          }
-        } catch (countError) {
-          // silently ignore counting errors
-          Alert.alert('Error', 'Failed to count bales: ' + String(countError));
-        }
-        
         setGrowerNote(result);
       } else {
         setGrowerNote(null);
@@ -374,8 +354,8 @@ export default function AddBaleToGDNoteScreen() {
       return;
     }
 
-    if (!scaleBarcode || !lotNumber || !groupNumber || !hessian || !location) {
-      Alert.alert('Error', 'Please fill in all bale details including hessian.');
+      if (!scaleBarcode || !lotNumber || !groupNumber || !location) {
+      Alert.alert('Error', 'Please fill in all bale details.');
       return;
     }
 
@@ -388,19 +368,6 @@ export default function AddBaleToGDNoteScreen() {
         return;
       }
 
-      // Resolve hessian_id from name if possible (best-effort)
-      let hessianIdToUse: any = hessianId ?? hessian;
-      try {
-        const hessianRows = await powersync.getAll<any>(
-          'SELECT id FROM receiving_hessian WHERE UPPER(name) = UPPER(?) AND COALESCE(active, 1) = 1 LIMIT 1',
-          [hessian.trim()]
-        );
-        if (hessianRows && hessianRows[0]?.id != null) {
-          hessianIdToUse = hessianRows[0].id;
-        }
-      } catch (_e) {
-        // ignore lookup errors
-      }
 
       // Resolve location_id from name if possible (best-effort)
       // Prefer selected location id if available; else try resolve from name
@@ -427,7 +394,6 @@ export default function AddBaleToGDNoteScreen() {
         barcode: scaleBarcode,
         lot_number: lotNumber,
         group_number: toInt(groupNumber),
-        hessian_id: hessianIdToUse,
         location_id: locationIdToUse,
         create_date: now,
         write_date: now,
@@ -438,7 +404,7 @@ export default function AddBaleToGDNoteScreen() {
       if (DEBUG_SAVE_LOGS) console.log('📦 Saving bale to PowerSync:', baleData);
 
       await powersync.execute(
-        'INSERT INTO receiving_bale (id, grower_delivery_note_id, document_number, scale_barcode, barcode, lot_number, group_number, hessian_id, location_id, create_date, write_date, mass, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO receiving_bale (id, grower_delivery_note_id, document_number, scale_barcode, barcode, lot_number, group_number, location_id, create_date, write_date, mass, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           baleData.id,
           baleData.grower_delivery_note_id,
@@ -447,7 +413,6 @@ export default function AddBaleToGDNoteScreen() {
           baleData.barcode,
           baleData.lot_number,
           baleData.group_number,
-          baleData.hessian_id,
           baleData.location_id,
           baleData.create_date,
           baleData.write_date,
@@ -463,8 +428,6 @@ export default function AddBaleToGDNoteScreen() {
       setScaleBarcode('');
       setLotNumber('');
       setGroupNumber('');
-      setHessian('');
-      setHessianId(null);
       // setLocation('');
 
       // Trigger PowerSync refresh to get the latest data from the server
@@ -672,23 +635,83 @@ export default function AddBaleToGDNoteScreen() {
     }
   };
 
+  // Listen for PowerSync connection status (same pattern as other screens)
+  useEffect(() => {
+    // Ensure PowerSync is connected, then register listener
+    (async () => {
+      try {
+        await setupPowerSync();
+      } catch (e) {
+        console.warn('⚠️ Failed to setup PowerSync in add-bale-to-gd-note:', e);
+      }
+      powersync.registerListener({
+        statusChanged: (status: any) => {
+          setSyncStatus(!!status.connected);
+        },
+      });
+    })();
+  }, []);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       className="flex-1 bg-[#65435C]"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <Stack.Screen options={{title: 'Add Bale to GD Note', headerShown: true }} />
-      <ScrollView 
-        className="flex-1 bg-white rounded-2xl p-5 m-4"
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-      >
+      <Stack.Screen options={{ title: 'Add Bale to GD Note', headerShown: false }} />
+      <View className="flex-1">
+        {/* Custom header with back and PowerSync status */}
+        <View className="flex-row items-center justify-between mb-2 bg-white py-5 px-4">
+          <TouchableOpacity
+            className="flex-row items-center"
+            // Navigate directly back to the Receiving menu (Menu tab) instead of popping the stack
+            onPress={() =>
+              router.replace({
+                pathname: '/receiving',
+                params: { tab: 'menu' },
+              })
+            }
+          >
+            <ChevronLeft size={24} color="#65435C" />
+            <Text className="text-[#65435C] font-bold text-lg ml-2">
+              Add Bale to GD Note
+            </Text>
+          </TouchableOpacity>
+          <View className="flex-row items-center">
+            <View
+              className={`h-2 w-2 rounded-full mr-1 ${
+                syncStatus ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+            <Text
+              className={`text-xs font-semibold ${
+                syncStatus ? 'text-green-700' : 'text-red-700'
+              }`}
+            >
+              {syncStatus ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+        </View>
+
+        <View className="flex-1 px-2">
+        <ScrollView
+          className="flex-1 bg-white rounded-2xl p-5 mt-2"
+          keyboardShouldPersistTaps="handled"
+            contentContainerStyle={isKeyboardVisible ? {
+              paddingBottom: 400,
+              flexGrow: 1
+            } : {
+              paddingBottom: 40,
+              flexGrow: 1
+            }}
+        >
         <Text className="text-xl font-bold text-[#65435C] mb-4">Find Grower Delivery Note</Text>
 
         <View className="flex-row mb-5">
           <TextInput
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-base"
             placeholder="Document Number"
+            placeholderTextColor="#9CA3AF"
             value={documentNumber}
             onChangeText={setDocumentNumber}
           />
@@ -739,25 +762,10 @@ export default function AddBaleToGDNoteScreen() {
         {growerNote && (
           <>
             <Text className="text-xl font-bold text-[#65435C] mb-1">Configure Session</Text>
-            {/* Hessian dropdown */}
-            <View className="border border-gray-300 rounded-lg px-2 py-1 mb-2">
-              <Picker
-                selectedValue={hessianId ?? ''}
-                onValueChange={(val) => {
-                  setHessianId(val);
-                  const found = hessians.find((h) => h.id === val);
-                  setHessian(found?.name || '');
-                }}
-              >
-                <Picker.Item label={hessian ? hessian : 'Select Hessian'} value={hessianId ?? ''} />
-                {hessians.map((h) => (
-                  <Picker.Item key={h.id} label={`${h.name} (${h.hessian_id})`} value={h.id} />
-                ))}
-              </Picker>
-            </View>
             {/* Location dropdown */}
             <View className="border border-gray-300 rounded-lg px-2 py-1 mb-3">
               <Picker
+                style={{ height: 50, color: locationId ? '#111827' : '#4B5563' }}
                 selectedValue={locationId ?? ''}
                 onValueChange={(val) => {
                   setLocationId(val);
@@ -765,9 +773,9 @@ export default function AddBaleToGDNoteScreen() {
                   setLocation(found?.name || '');
                 }}
               >
-                <Picker.Item label={location ? location : 'Select Location'} value={locationId ?? ''} />
+                <Picker.Item label={location ? location : 'Select Location'} value={locationId ?? ''} color="#9CA3AF" />
                 {locations.map((loc) => (
-                  <Picker.Item key={loc.id} label={loc.name} value={loc.id} />
+                  <Picker.Item key={loc.id} label={loc.name} value={loc.id} color="#374151" />
                 ))}
               </Picker>
             </View>
@@ -781,7 +789,9 @@ export default function AddBaleToGDNoteScreen() {
           </>
         )}
       </ScrollView>
+      </View>
       {/* Dropdown replaces modal; no modal needed */}
+      </View>
     </KeyboardAvoidingView>
   );
 }

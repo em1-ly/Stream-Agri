@@ -217,6 +217,7 @@ export function SessionProvider({ children }: PropsWithChildren): ReactNode {
               setSession(JSON.stringify(userData));
               await SecureStore.setItemAsync('odoo_custom_session_id', data.result.session_token);
               await SecureStore.setItemAsync('odoo_employee_id', String(data.result.employee.id));
+              await SecureStore.setItemAsync('odoo_employee_name', data.result.employee.name || '');
               return true;
             } else {
               setError('Invalid response from server');
@@ -267,7 +268,6 @@ export function SessionProvider({ children }: PropsWithChildren): ReactNode {
             if (isMatch) {
                     // Save important user data
                     const userData = {
-
                       userId: userId,
                       name: fullName,
                       workPhone: workPhone,
@@ -277,6 +277,8 @@ export function SessionProvider({ children }: PropsWithChildren): ReactNode {
 
                     
                     setSession(JSON.stringify(userData));
+                    await SecureStore.setItemAsync('odoo_employee_id', String(userId));
+                    await SecureStore.setItemAsync('odoo_employee_name', fullName || '');
                     return true;
             }
             

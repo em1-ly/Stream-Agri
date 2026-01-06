@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 // Safe storage wrapper: falls back to in-memory store if native module is unavailable
@@ -28,9 +28,9 @@ const SafeStorage = {
     __memStore[key] = value;
   }
 };
-import { Barcode, Search, CheckCircle, XCircle } from 'lucide-react-native';
+import { Barcode, Search, CheckCircle, XCircle, ChevronLeft } from 'lucide-react-native';
 import { Picker } from '@react-native-picker/picker';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { SellingPointRecord, FloorSaleRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
 import { v4 as uuid } from 'uuid';
@@ -50,6 +50,8 @@ const FormInput = ({ label, value, onChangeText, placeholder }: {
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
+        placeholderTextColor="#9CA3AF"
+        style={{ color: '#111827' }}
       />
     </View>
 );
@@ -58,15 +60,19 @@ const FormPicker = ({ label, selectedValue, onValueChange, items }: {
   label: string;
   selectedValue: string | null;
   onValueChange: (value: string | null) => void;
-  items: { id: string; name: string }[];
+  items: { id: any; name: string | null }[];
 }) => (
       <View className="mb-4">
           <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-          <View className="bg-gray-100 border border-gray-300 rounded-lg">
-              <Picker selectedValue={selectedValue} onValueChange={onValueChange}>
-                  <Picker.Item label={`-- Select ${label} --`} value={null} />
+          <View className="bg-gray-200 border border-gray-300 rounded-lg">
+              <Picker 
+                selectedValue={selectedValue} 
+                onValueChange={onValueChange}
+                style={{ height: 50, color: selectedValue ? '#111827' : '#4B5563' }}
+              >
+                  <Picker.Item label={`-- Select ${label} --`} value={null} color="#9CA3AF" />
                   {items.map((item) => (
-                      <Picker.Item key={item.id} label={item.name} value={item.id} />
+                      <Picker.Item key={String(item.id)} label={item.name || ''} value={String(item.id)} color="#374151" />
                   ))}
               </Picker>
           </View>
@@ -308,99 +314,120 @@ const SequencingScannerScreen = () => {
   };
 
   return (
-    <>
-      <Stack.Screen options={{ title: 'Sequencing Scanner', headerShown: true }} />
-      <ScrollView className="flex-1 bg-white p-5">
-        
-        {/* Sale Configuration (sticky config fields that persist during scanning) */}
-        <View className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <View className="flex-row justify-between items-center mb-3">
-            <Text className="text-xl font-bold text-[#65435C]">Sale Configuration</Text>
-            <TouchableOpacity onPress={handleClearForm} className="bg-red-500 px-3 py-1 rounded">
-              <Text className="text-white text-sm">Clear</Text>
-            </TouchableOpacity>
-          </View>
-          <FormPicker 
-            label="Selling Point"
-            selectedValue={selectedSellingPoint}
-            onValueChange={(itemValue: string | null) => setSelectedSellingPoint(itemValue)}
-            items={sellingPoints}
-          />
-          <FormPicker 
-            label="Floor Sale"
-            selectedValue={selectedFloorSale}
-            onValueChange={(itemValue: string | null) => setSelectedFloorSale(itemValue)}
-            items={filteredFloorSales}
-          />
-        </View>
-
-        {/* Scanning Interface */}
-        <View className="mb-6 p-4 bg-gray-50 rounded-lg">
-       
-          <TouchableOpacity 
-            onPress={async () => {
-              if (!selectedSellingPoint || !selectedFloorSale) {
-                Alert.alert('Missing Information', 'Please fill in Selling Point and Floor Sale before scanning.');
-                return;
-              }
-
-              // Navigate to scale-bale screen with the selected configuration
-              try {
-                await SafeStorage.setItem(
-                  STORAGE_KEY,
-                  JSON.stringify({
-                    selectedSellingPoint,
-                    selectedFloorSale,
-                    row,
-                    rowMax,
-                    location,
-                    pendingRowBales
-                  })
-                );
-              } catch (error) {
-                console.error('Error saving form state:', error);
-              }
-              
-              // Navigate to scanner - all fields will be preserved
-              router.push({ 
-                pathname: '/receiving/scale-bale', 
-                params: { 
-                  rowMax: (rowMax || '').toString(),
-                  row: (row || '').toString(),
-                  selling_point_id: selectedSellingPoint || '',
-                  floor_sale_id: selectedFloorSale || '',
-                  reset: '1'
-                } 
-              });
-            }}
-            className="bg-blue-600 p-3 rounded-lg flex-row items-center justify-center mt-2"
+    <SafeAreaView className="flex-1 bg-[#65435C]">
+      <Stack.Screen
+        options={{
+          title: 'Sequencing Scanner',
+          headerShown: false,
+        }}
+      />
+      <View className="flex-1 p-4">
+        {/* Custom header that routes back to Receiving menu */}
+        <View className="flex-row items-center justify-between mb-2 bg-white rounded-2xl px-4 py-3">
+          <TouchableOpacity
+            className="flex-row items-center"
+            onPress={() =>
+              router.replace({
+                pathname: '/receiving',
+                params: { tab: 'menu' },
+              })
+            }
           >
-            <Barcode size={20} color="white" />
-            <Text className="text-white font-bold ml-2">Start Scanning</Text>
+            <ChevronLeft size={24} color="#65435C" />
+            <Text className="text-[#65435C] font-bold text-lg ml-2">
+              Sequencing Scanner
+            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Removed in-page Add and Continue. Handled in scale-bale screen */}
-
-        {/* Results and Scan Info sections remain the same... */}
-        {resultMessage && (
-            <View className={`mb-6 p-4 rounded-lg flex-row items-center ${isError ? 'bg-red-100' : 'bg-green-100'}`}>
-                {isError ? <XCircle size={24} color="red" /> : <CheckCircle size={24} color="green" />}
-                <Text className={`ml-3 text-base ${isError ? 'text-red-800' : 'text-green-800'}`}>{resultMessage}</Text>
+        <ScrollView className="flex-1 bg-white rounded-2xl p-5 mt-2">
+          {/* Sale Configuration (sticky config fields that persist during scanning) */}
+          <View className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <View className="flex-row justify-between items-center mb-3">
+              <Text className="text-xl font-bold text-[#65435C]">Sale Configuration</Text>
+              <TouchableOpacity onPress={handleClearForm} className="bg-red-500 px-3 py-1 rounded">
+                <Text className="text-white text-sm">Clear</Text>
+              </TouchableOpacity>
             </View>
-        )}
-
-        
-        {scanInfo && (
-          <View className="mb-6 p-4 bg-blue-50 rounded-lg">
-            <Text className="text-xl font-bold text-blue-800 mb-3">Current Scan Info</Text>
-            <Text className="text-base mb-1"><Text className="font-semibold">Grower:</Text> {scanInfo.grower_name} ({scanInfo.grower_number})</Text>
-            <Text className="text-base mb-1"><Text className="font-semibold">Lot / Group:</Text> {scanInfo.lot_number} / {scanInfo.group_number}</Text>
-            <Text className="text-base"><Text className="font-semibold">Bales Scanned:</Text> {scanInfo.total_scanned} of {scanInfo.total_delivered}</Text>
+            <FormPicker 
+              label="Selling Point"
+              selectedValue={selectedSellingPoint}
+              onValueChange={(itemValue: string | null) => setSelectedSellingPoint(itemValue)}
+              
+              items={sellingPoints}
+            />
+            <FormPicker 
+              label="Floor Sale"
+              selectedValue={selectedFloorSale}
+              onValueChange={(itemValue: string | null) => setSelectedFloorSale(itemValue)}
+              items={filteredFloorSales}
+            />
           </View>
-        )}
-      </ScrollView>
-    </>
+
+          {/* Scanning Interface */}
+          <View className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <TouchableOpacity 
+              onPress={async () => {
+                if (!selectedSellingPoint || !selectedFloorSale) {
+                  Alert.alert('Missing Information', 'Please fill in Selling Point and Floor Sale before scanning.');
+                  return;
+                }
+
+                // Navigate to scale-bale screen with the selected configuration
+                try {
+                  await SafeStorage.setItem(
+                    STORAGE_KEY,
+                    JSON.stringify({
+                      selectedSellingPoint,
+                      selectedFloorSale,
+                      row,
+                      rowMax,
+                      location,
+                      pendingRowBales
+                    })
+                  );
+                } catch (error) {
+                  console.error('Error saving form state:', error);
+                }
+                
+                // Navigate to scanner - all fields will be preserved
+                router.push({ 
+                  pathname: '/receiving/scale-bale', 
+                  params: { 
+                    rowMax: (rowMax || '').toString(),
+                    row: (row || '').toString(),
+                    selling_point_id: selectedSellingPoint || '',
+                    floor_sale_id: selectedFloorSale || '',
+                    reset: '1'
+                  } 
+                });
+              }}
+              className="bg-[#65435C] p-3 rounded-lg flex-row items-center justify-center mt-2"
+            >
+              <Barcode size={20} color="white" />
+              <Text className="text-white font-bold ml-2">Start Scanning</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Results and Scan Info sections remain the same... */}
+          {resultMessage && (
+            <View className={`mb-6 p-4 rounded-lg flex-row items-center ${isError ? 'bg-red-100' : 'bg-green-100'}`}>
+              {isError ? <XCircle size={24} color="red" /> : <CheckCircle size={24} color="green" />}
+              <Text className={`ml-3 text-base ${isError ? 'text-red-800' : 'text-green-800'}`}>{resultMessage}</Text>
+            </View>
+          )}
+
+          {scanInfo && (
+            <View className="mb-6 p-4 bg-blue-50 rounded-lg">
+              <Text className="text-xl font-bold text-blue-800 mb-3">Current Scan Info</Text>
+              <Text className="text-base mb-1"><Text className="font-semibold">Grower:</Text> {scanInfo.grower_name} ({scanInfo.grower_number})</Text>
+              <Text className="text-base mb-1"><Text className="font-semibold">Lot / Group:</Text> {scanInfo.lot_number} / {scanInfo.group_number}</Text>
+              <Text className="text-base"><Text className="font-semibold">Bales Scanned:</Text> {scanInfo.total_scanned} of {scanInfo.total_delivered}</Text>
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 };
 

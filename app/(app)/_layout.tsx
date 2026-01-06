@@ -25,6 +25,10 @@ export default function RootLayout() {
       <StatusBar backgroundColor="#65435C" barStyle="light-content" />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="floor-dispatch" options={{ headerShown: false }} />
+        <Stack.Screen name="datacapturing" options={{ headerShown: false }} />
+        <Stack.Screen name="receiving" options={{ headerShown: false, title: 'Receiving' }} />
+        <Stack.Screen name="inventory" options={{ headerShown: false, title: 'Receiving' }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </View>

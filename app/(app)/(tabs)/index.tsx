@@ -1,6 +1,6 @@
-import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView } from 'react-native'
+import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, StatusBar } from 'react-native'
 import React, { useCallback, useState, useEffect } from 'react'
-import { CircleUserRound, FolderSync, Wifi, Users, Settings, BarChart, Leaf, ChevronRight, Building, UserCheck, FileCheck, UserX, User } from 'lucide-react-native';
+import { CircleUserRound, FolderSync, Wifi, Users, Settings, BarChart, Leaf, ChevronRight, Building, UserCheck, FileCheck, UserX, User, Truck } from 'lucide-react-native';
 
 import { useSession } from '@/authContext';
 import { exportDatabase } from '@/export-db';
@@ -8,7 +8,7 @@ import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { useNetwork } from '@/NetworkContext';
 import { forceRunImageUploadService, getUploadPendingCount } from '@/utils/imageUploadService';
 import * as SecureStore from 'expo-secure-store';
-import { powersync } from '@/powersync/system';
+import { powersync } from '@/powersync/setup';
 import { ResCompanyRecord } from '@/powersync/Schema';
 
 
@@ -239,7 +239,7 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/inputs' as any)}
+          onPress={() => router.push('/(app)/inventory' as any)}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
@@ -275,6 +275,26 @@ const index = () => {
           </View>
         </TouchableOpacity>
 
+        {/* Floor Dispatch Tile */}
+        <TouchableOpacity 
+          style={{ width: tileSize, height: tileSize }}
+          className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
+          onPress={() => router.push('/(app)/floor-dispatch' as any)}
+        >
+          <View className='flex-1 justify-between'>
+            <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
+              <Truck size={24} color="#1AD3BB" />
+            </View>
+            <View>
+              <Text className='text-lg font-semibold text-[#65435C]'>Floor Dispatch</Text>
+              <View className='flex-row items-center mt-1'>
+                <Text className='text-gray-500 text-sm'>Dispatch Bales</Text>
+                <ChevronRight size={16} color="#65435C" />
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+
         {/* Settings Tile */}
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
@@ -288,7 +308,7 @@ const index = () => {
             <View>
               <Text className='text-lg font-semibold text-[#65435C]'>Settings</Text>
               <View className='flex-row items-center mt-1'>
-                <Text className='text-gray-500 text-sm'>App preferences</Text>
+                <Text className='text-gray-500 text-sm'>settings</Text>
                 <ChevronRight size={16} color="#65435C" />
               </View>
             </View>
@@ -296,6 +316,8 @@ const index = () => {
         </TouchableOpacity>
       </View>
       {/* Grower Statistics Card */}
+
+      
       
     </View>
     </ScrollView>

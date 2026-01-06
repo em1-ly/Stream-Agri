@@ -7,7 +7,7 @@ export default function DataCapturingLayout() {
         name="index" 
         options={{ 
           title: 'Data Capturing',
-          headerShown: true,
+          headerShown: false,
           headerBackVisible: false
         }} 
       />
@@ -15,7 +15,7 @@ export default function DataCapturingLayout() {
         name="classification" 
         options={{ 
           title: 'Classification',
-          headerShown: false,
+          headerShown: true,
           headerBackVisible: true
         }} 
       />

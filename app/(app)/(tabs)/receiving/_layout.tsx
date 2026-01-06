@@ -1,44 +1,41 @@
 import { Stack } from 'expo-router';
+import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ReceivingLayout() {
+  const insets = useSafeAreaInsets();
+  
   return (
-    <Stack>
+    <Stack
+      screenOptions={{
+        headerStyle: {
+          height: insets.top + 50,
+          backgroundColor: 'transparent',
+        },
+        headerBackground: () => (
+          <View style={{ flex: 1 }}>
+            {/* Dark purple area for status bar - precise inset */}
+            <View style={{ height: insets.top, backgroundColor: '#65435C' }} />
+            {/* White area for custom navbar content */}
+            <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />
+          </View>
+        ),
+      }}
+    >
       <Stack.Screen 
         name="index" 
         options={{ 
           title: 'Receiving',
-          headerShown: true 
-        }} 
-      />
-      <Stack.Screen 
-        name="[id]" 
-        options={{ 
-          title: 'Grower Details',
-          headerShown: false, // Hide the header for modal
-          presentation: 'modal', // Make it a modal
-          animation: 'slide_from_bottom', // Animation style
+          headerShown: false 
         }} 
       />
       <Stack.Screen 
         name="new" 
         options={{ 
-          title: 'New Grower',
-          headerShown: false,
-          presentation: 'modal',
-          animation: 'slide_from_bottom',
+          title: 'New Receiving',
+          headerShown: false 
         }} 
       />
-      {/* Screens from the other layout file */}
-      <Stack.Screen name="barcode-scanner" options={{ title: 'Scan Barcode' }} />
-      <Stack.Screen name="validate-td-line" options={{ title: 'Validate TD Line' }} />
-      <Stack.Screen name="view-all-td-notes" options={{ title: 'View All TD Notes' }} />
-      <Stack.Screen name="view-all-grower-d-notes" options={{ title: 'View all Grower D Notes' }} />
-      <Stack.Screen name="add-bale-to-gd-note" options={{ title: 'Add Bale to GD Note' }} />
-      <Stack.Screen name="sequencing-scanner" options={{ title: 'Sequencing Scanner' }} />
-      <Stack.Screen name="scale-bale" options={{ title: 'Scale Bale' }} />
-      <Stack.Screen name="transporter-details" options={{ title: 'Transporter Details' }} />
-    
-     
     </Stack>
   );
 }

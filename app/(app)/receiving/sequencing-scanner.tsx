@@ -30,7 +30,7 @@ const SafeStorage = {
 };
 import { Barcode, Search, CheckCircle, XCircle, ChevronLeft } from 'lucide-react-native';
 import { Picker } from '@react-native-picker/picker';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { SellingPointRecord, FloorSaleRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
 import { v4 as uuid } from 'uuid';

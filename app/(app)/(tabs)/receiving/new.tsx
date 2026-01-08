@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert, Modal, Button, Image } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { ChevronLeft, MapPinPlus, Pencil, X, Camera, CalendarIcon } from 'lucide-react-native';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { Picker } from '@react-native-picker/picker';
 import { GrowerApplicationDraftRecord } from '@/powersync/Schema';
 // import * as Location from 'expo-location';

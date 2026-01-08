@@ -10,7 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import { exportDatabase } from "../../export-db"
 // import { useSQLiteContext } from "expo-sqlite"
 import { useNetwork } from "@/NetworkContext"
-import { powersync, setupPowerSync } from "@/powersync/setup"
+import { powersync, setupPowerSync } from "@/powersync/system"
 import { Connector } from "@/powersync/Connector"
 
 interface LoginScreenProps {

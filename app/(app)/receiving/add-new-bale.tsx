@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingVi
 import { Picker } from '@react-native-picker/picker';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Camera, ChevronLeft } from 'lucide-react-native';
-import { powersync, setupPowerSync } from '@/powersync/setup';
+import { powersync, setupPowerSync } from '@/powersync/system';
 import { GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
 import { v4 as uuidv4 } from 'uuid';

@@ -4,7 +4,7 @@ import { router, Stack, useFocusEffect } from 'expo-router'
 import { ChevronRight, FileSpreadsheet, LogOut } from 'lucide-react-native'
 import { useSession } from '@/authContext'
 import { forceRunImageUploadService } from '@/utils/imageUploadService'
-import { powersync } from '@/powersync/setup'
+import { powersync } from '@/powersync/system'
 import SyncLogs from './SyncLogs'
 
 const Settings = () => {

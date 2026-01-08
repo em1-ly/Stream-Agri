@@ -5,7 +5,7 @@ import { StackActions } from '@react-navigation/native';
 import React from 'react';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { BaleRecord, GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import { SuccessToast } from '@/components/SuccessToast';
 import { Picker } from '@react-native-picker/picker';

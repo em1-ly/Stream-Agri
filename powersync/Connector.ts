@@ -2,7 +2,7 @@ import { AbstractPowerSyncDatabase, PowerSyncBackendConnector, UpdateType } from
 import axios from "axios";
 import * as SecureStore from 'expo-secure-store';
 import { useSession } from "@/authContext";
-import { powersync } from "./db";
+import { powersync } from "./system";
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -528,6 +528,20 @@ export class Connector implements PowerSyncBackendConnector {
                 barcode: createData.barcode,
                 logistics_barcode: createData.logistics_barcode,
                 default_weight: weight,
+                // Add extra fields for packed products if they exist
+                qr_code: createData.qr_code,
+                operation_no: createData.operation_no,
+                crop_year: createData.crop_year,
+                tobacco_type: createData.tobacco_type,
+                manufacture_date: createData.manufacture_date,
+                product_type: createData.product_type,
+                run_case_no: createData.run_case_no,
+                package_no: createData.package_no,
+                grade_id: createData.grade,
+                mass: createData.mass,
+                tare: createData.tare,
+                gross: createData.gross,
+                cnt: createData.cnt,
               };
               console.log('🔍 warehouse_shipped_bale - Carton Scan - Model/Type:', createType);
               console.log('🔍 warehouse_shipped_bale - Carton Scan - mapped data:', JSON.stringify(createData, null, 2));
@@ -720,6 +734,9 @@ export class Connector implements PowerSyncBackendConnector {
             !recordData.grade &&
             !recordData.location_id &&
             !recordData.stack_date_time;
+
+          // Special handling for ticketing (operation_type = 'ticketed') – route to unified endpoint
+          const isTicketing = tableName === 'warehouse_shipped_bale' && operationTypeFlag === 'ticketed';
           
           // Special handling for standalone reclassification operations (not part of stacking)
           // Exclude reticketing (which also uses 'reclassified' but only updates barcode, not grade)
@@ -739,8 +756,8 @@ export class Connector implements PowerSyncBackendConnector {
           
           // Special handling for bale updates - server expects all changed fields
           // Include both receiving_bale and warehouse_shipped_bale (for stacking operations)
-          // Exclude operations that have their own unified endpoints (stacking, reclassification, rack loading, depalletizing, reticketing, receiving)
-          const isBale = tableName === 'receiving_bale' || (tableName === 'warehouse_shipped_bale' && !isStackingOperation && !isStandaloneReclassification && !isRackLoading && !isDepalletizing && !isReticketing && !isReceivingOperation);
+          // Exclude operations that have their own unified endpoints (stacking, reclassification, rack loading, depalletizing, reticketing, receiving, ticketing)
+          const isBale = tableName === 'receiving_bale' || (tableName === 'warehouse_shipped_bale' && !isStackingOperation && !isStandaloneReclassification && !isRackLoading && !isDepalletizing && !isReticketing && !isReceivingOperation && !isTicketing);
           
           // Special handling for receiving_bale updates - detect if scale_barcode, group_number, or lot_number are being updated
           // These should use the receiving_bale_update unified endpoint instead of regular PATCH
@@ -1062,6 +1079,81 @@ export class Connector implements PowerSyncBackendConnector {
               
               // For other errors, treat as handled (complete transaction, no retry)
               const warningMessage = `Reclassification operation request failed (bale id: ${id}): ${errorMessage}. Treating as handled - transaction will complete (no retry)`;
+              console.warn(`⚠️ ${warningMessage}`);
+              await logToSystem('warning', warningMessage, op, { error: errorMessage });
+              // Do NOT throw here – this lets the transaction complete and drops the op
+              continue; // Skip the regular PATCH operation
+            }
+          }
+
+          // Handle ticketing operations - call unified API endpoint instead of PATCH
+          if (isTicketing) {
+            try {
+              // Get barcode from current record (required for search in wizard)
+              const baleRecord = await database.get<any>(`SELECT barcode FROM warehouse_shipped_bale WHERE id = ?`, [id]);
+              
+              if (!baleRecord || !baleRecord.barcode) {
+                console.warn('⚠️ Cannot sync ticketing operation - barcode missing for bale:', id);
+                continue; // Skip this operation
+              }
+              
+              // Get the new logistics barcode from the update
+              const newLogisticsBarcode = recordData.logistics_barcode;
+              
+              if (!newLogisticsBarcode) {
+                console.warn('⚠️ Cannot sync ticketing operation - new_logistics_barcode missing in update data for bale:', id);
+                continue; // Skip this operation
+              }
+              
+              console.log(`📤 Updating ticketing for bale via unified API endpoint:`, { barcode: baleRecord.barcode, new_logistics_barcode: newLogisticsBarcode });
+              
+              const ticketingOptions = {
+                method: 'POST',
+                url: `${normalizedServerURL}/api/fo/create_unified`,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-FO-TOKEN': token
+                },
+                data: {
+                  jsonrpc: '2.0',
+                  method: 'call',
+                  params: {
+                    type: 'warehouse_ticketing_update_barcode',
+                    data: {
+                      barcode: baleRecord.barcode,
+                      new_logistics_barcode: newLogisticsBarcode
+                    }
+                  }
+                }
+              };
+              
+              const response = await axios.request(ticketingOptions);
+              const serverRecord = response.data;
+              
+              if (serverRecord?.result && serverRecord.result.success === false) {
+                const errorMessage = serverRecord.result.message || 'Unknown error updating ticketing';
+                const warningMessage = `Server rejected ticketing operation (bale: ${baleRecord.barcode}): ${errorMessage}. Treating as handled - transaction will complete (no retry)`;
+                console.warn(`⚠️ ${warningMessage}`);
+                await logToSystem('warning', warningMessage, op, { errorMessage, barcode: baleRecord.barcode, serverResponse: serverRecord.result });
+                // Do NOT throw here – this lets the transaction complete and drops the op
+                continue; // Skip the regular PATCH operation
+              } else {
+                console.log(`✅ Ticketing updated successfully:`, serverRecord.result);
+                await logToSystem('success', `Ticketing updated successfully.`, op, serverRecord.result);
+                // Skip the regular PATCH operation since we handled it via the API endpoint
+                continue;
+              }
+            } catch (error: any) {
+              const errorMessage = error?.message || String(error) || 'Unknown error';
+              
+              // Network errors should be retried
+              if (isNetworkError(error)) {
+                console.error(`❌ Network error during ticketing operation (bale id: ${id}): ${errorMessage}. Will retry.`);
+                throw error; // Re-throw to trigger PowerSync retry
+              }
+              
+              // For other errors, treat as handled (complete transaction, no retry)
+              const warningMessage = `Ticketing operation request failed (bale id: ${id}): ${errorMessage}. Treating as handled - transaction will complete (no retry)`;
               console.warn(`⚠️ ${warningMessage}`);
               await logToSystem('warning', warningMessage, op, { error: errorMessage });
               // Do NOT throw here – this lets the transaction complete and drops the op

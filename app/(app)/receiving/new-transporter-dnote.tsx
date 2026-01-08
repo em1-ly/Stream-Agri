@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Save } from 'lucide-react-native';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { DriverRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
 import { v4 as uuid } from 'uuid';

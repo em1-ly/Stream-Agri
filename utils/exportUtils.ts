@@ -56,6 +56,13 @@ export const EXPORT_TABLES: ExportTable[] = [
     query: 'SELECT * FROM warehouse_driver'
   },
 
+  {
+    name: 'data_processing_salesmaster',
+    displayName: 'Sales Masters',
+    query: 'SELECT * FROM data_processing_salesmaster'
+  },
+
+
 
 
 

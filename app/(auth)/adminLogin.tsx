@@ -8,7 +8,7 @@ import { useSession } from "@/authContext"
 import { useFocusEffect, useRouter } from "expo-router"
 import * as SecureStore from 'expo-secure-store';
 import axios from "axios";
-import { powersync } from "@/powersync/setup";
+import { powersync } from "@/powersync/system";
 
 
 interface LoginScreenProps {

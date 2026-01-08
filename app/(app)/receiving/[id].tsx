@@ -3,7 +3,7 @@ import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } fr
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Archive, Calendar, MapPin, Package, User, Edit2, ChevronDown } from 'lucide-react-native';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { GrowerDeliveryNoteRecord, BaleRecord } from '@/powersync/Schema';
 
 type BaleWithId = BaleRecord & { id: string };

@@ -1,8 +1,9 @@
 import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Alert, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import React, { useState, useEffect } from 'react';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Scan } from 'lucide-react-native';
-import { powersync } from '@/powersync/setup';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
+import { Scan, ChevronLeft } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { powersync } from '@/powersync/system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BUYER_NUMBER_STORAGE_KEY = 'last_buyer_number';
@@ -43,7 +44,52 @@ interface AbitrationFormState {
 const AbitrationScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const [barcode, setBarcode] = useState('');
+  const [syncStatus, setSyncStatus] = useState(!!powersync.currentStatus?.connected);
+
+  useEffect(() => {
+    const unregister = powersync.registerListener({
+      statusChanged: (status) => {
+        setSyncStatus(!!status.connected);
+      },
+    });
+    return unregister;
+  }, []);
+
+  const handleRefresh = async () => {
+    await loadOptions();
+    if (barcode) {
+      await fetchBaleData(barcode);
+    }
+    Alert.alert('Refreshed', 'Data has been updated.');
+  };
+
+  const loadOptions = async () => {
+    try {
+      const [
+        timbGradesResult,
+        buyersResult,
+        saleCodesResult,
+        buyingStaffResult,
+        classifiersResult
+      ] = await Promise.all([
+        powersync.getAll<any>('SELECT id, name FROM floor_maintenance_timb_grade ORDER BY name'),
+        powersync.getAll<any>('SELECT id, buyer_code FROM buyers_buyer ORDER BY buyer_code'),
+        powersync.getAll<any>('SELECT id, name FROM data_processing_salecode ORDER BY name'),
+        powersync.getAll<any>('SELECT id, buyer_number FROM buyers_buying_staff ORDER BY buyer_number'),
+        powersync.getAll<any>('SELECT id, classifier_number FROM buyers_classifier ORDER BY classifier_number')
+      ]);
+      setTimbGrades(timbGradesResult || []);
+      setBuyers(buyersResult || []);
+      setSaleCodes(saleCodesResult || []);
+      setBuyingStaff(buyingStaffResult || []);
+      setClassifiers(classifiersResult || []);
+    } catch (e) {
+      console.error('Failed to load dropdown options:', e);
+    }
+  };
+
   const [baleData, setBaleData] = useState<BaleData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,30 +156,6 @@ const AbitrationScreen = () => {
   }, []);
 
   useEffect(() => {
-    const loadOptions = async () => {
-      try {
-        const [
-          timbGradesResult,
-          buyersResult,
-          saleCodesResult,
-          buyingStaffResult,
-          classifiersResult
-        ] = await Promise.all([
-          powersync.getAll<any>('SELECT id, name FROM floor_maintenance_timb_grade ORDER BY name'),
-          powersync.getAll<any>('SELECT id, buyer_code FROM buyers_buyer ORDER BY buyer_code'),
-          powersync.getAll<any>('SELECT id, name FROM data_processing_salecode ORDER BY name'),
-          powersync.getAll<any>('SELECT id, buyer_number FROM buyers_buying_staff ORDER BY buyer_number'),
-          powersync.getAll<any>('SELECT id, classifier_number FROM buyers_classifier ORDER BY classifier_number')
-        ]);
-        setTimbGrades(timbGradesResult || []);
-        setBuyers(buyersResult || []);
-        setSaleCodes(saleCodesResult || []);
-        setBuyingStaff(buyingStaffResult || []);
-        setClassifiers(classifiersResult || []);
-      } catch (e) {
-        console.error('Failed to load dropdown options:', e);
-      }
-    };
     loadOptions();
   }, []);
 
@@ -1076,24 +1098,64 @@ const AbitrationScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined} 
-      style={{ flex: 1 }}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-    >
-      <ScrollView
-        style={{ flex: 1, paddingHorizontal: 16 }}
-        contentContainerStyle={isKeyboardVisible ? {
-          paddingVertical: 16,
-          paddingBottom: 400
-        } : {
-          paddingVertical: 16,
-          paddingBottom: 20
-        }}
-        scrollEnabled={true}
-        showsVerticalScrollIndicator={true}
-        keyboardShouldPersistTaps="handled"
-      >
+    <View className="flex-1 bg-[#65435C]">
+      <Stack.Screen options={{ headerShown: false }} />
+      
+      {/* Custom header matching View All TD Notes style */}
+      <View style={{ backgroundColor: '#65435C', paddingTop: insets.top }}>
+        <View className="flex-row items-center justify-between bg-white py-4 px-4">
+          <TouchableOpacity 
+            onPress={() => router.replace('/(app)/datacapturing')} 
+            className="flex-row items-center"
+          >
+            <ChevronLeft size={24} color="#65435C" />
+            <Text className="text-[#65435C] font-bold text-lg ml-2">Arbitration</Text>
+          </TouchableOpacity>
+          <View className="flex-row items-center gap-3">
+            {/* PowerSync status indicator */}
+            <View className="flex-row items-center">
+              <View
+                className={`h-2 w-2 rounded-full mr-1 ${
+                  syncStatus ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              <Text
+                className={`text-xs font-semibold ${
+                  syncStatus ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
+                {syncStatus ? 'Online' : 'Offline'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              className="px-3 py-1 rounded-full bg-[#65435C]/10"
+            >
+              <Text className="text-[#65435C] font-semibold text-base">🔄</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      <View className="flex-1 bg-white rounded-t-3xl overflow-hidden mt-2">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined} 
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+        >
+          <ScrollView
+            style={{ flex: 1, paddingHorizontal: 16 }}
+            contentContainerStyle={isKeyboardVisible ? {
+              paddingVertical: 16,
+              paddingBottom: 400
+            } : {
+              paddingVertical: 16,
+              paddingBottom: 20
+            }}
+            scrollEnabled={true}
+            showsVerticalScrollIndicator={true}
+            keyboardShouldPersistTaps="handled"
+          >
         
         <View className="bg-white p-4 rounded-lg shadow-md mb-4">
           <Text className="text-lg font-semibold mb-2 text-gray-700">Barcode</Text>
@@ -1474,9 +1536,11 @@ const AbitrationScreen = () => {
               </View>
           </View>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  </View>
+);
 };
 
 export default AbitrationScreen;

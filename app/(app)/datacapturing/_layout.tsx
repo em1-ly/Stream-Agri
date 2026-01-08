@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { StatusBar, View, Text, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Wifi, WifiOff, ChevronLeft } from 'lucide-react-native';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 
 // Sync Status Icon Component
 function SyncStatusIcon() {

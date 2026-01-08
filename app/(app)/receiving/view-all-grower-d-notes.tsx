@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { CircleArrowRight, PlugZap, Search, Unplug, FilePlus, ChevronLeft } from 'lucide-react-native';
 import { FlashList } from '@shopify/flash-list';
-import { powersync, setupPowerSync } from '@/powersync/setup';
+import { powersync, setupPowerSync } from '@/powersync/system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Define the type for a Grower Delivery Note.

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Alert, View } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import BarcodeScanner from '@/components/BarcodeScanner';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { useSession } from '@/authContext';
 import { v4 as uuidv4 } from 'uuid';
 

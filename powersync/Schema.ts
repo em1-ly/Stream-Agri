@@ -1003,6 +1003,7 @@ const warehouse_product = new Table({
   // Odoo model: warehouse.product
   name: column.text,
   default_receiving_weight: column.real,
+  technical_name: column.text,
 });
 
 const warehouse_instruction = new Table({
@@ -1143,7 +1144,17 @@ const warehouse_shipped_bale = new Table({
   origin_document: column.text,
   operation_type: column.text,
   operation_no: column.text,
+  manual_bale_resolved: column.integer, // Boolean
+  qr_code: column.text,
+  crop_year: column.text,
   tobacco_type: column.text,
+  manufacture_date: column.text,
+  product_type: column.text,
+  run_case_no: column.text,
+  package_no: column.text,
+  tare: column.real,
+  gross: column.real,
+  cnt: column.integer,
   pickings_weight: column.real,
   amount: column.real,
   create_date: column.text,

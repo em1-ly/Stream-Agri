@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { powersync, connectorInstance } from '@/powersync/setup';
+import { powersync, connectorInstance } from '@/powersync/system';
 import { ChevronLeft } from 'lucide-react-native';
 
 type TDLine = {

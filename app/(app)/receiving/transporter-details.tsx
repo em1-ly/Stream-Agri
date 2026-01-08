@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { printGrowerDeliveryNoteLocally } from '@/utils/growerDeliveryNotePrint';
 import { Printer, ChevronLeft } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

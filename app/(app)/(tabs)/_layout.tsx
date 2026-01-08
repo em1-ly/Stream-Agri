@@ -9,8 +9,7 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { BarChart, House, Leaf, Settings, Users, ClipboardList, Wifi, WifiOff, Building2 } from 'lucide-react-native';
-import { setupPowerSync, powersync } from '@/powersync/setup';
-
+import { setupPowerSync, powersync } from '@/powersync/system';
 // Sync Status Icon Component
 function SyncStatusIcon() {
   const [syncStatus, setSyncStatus] = useState(!!powersync.currentStatus?.connected);

@@ -8,7 +8,7 @@ import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { useNetwork } from '@/NetworkContext';
 import { forceRunImageUploadService, getUploadPendingCount } from '@/utils/imageUploadService';
 import * as SecureStore from 'expo-secure-store';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { ResCompanyRecord } from '@/powersync/Schema';
 
 

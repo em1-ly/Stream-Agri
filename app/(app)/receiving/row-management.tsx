@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
-import { powersync } from '@/powersync/setup';
+import { powersync } from '@/powersync/system';
 import { RowManagementRecord } from '@/powersync/Schema';
 
 interface RowData {

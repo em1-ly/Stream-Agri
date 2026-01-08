@@ -5,7 +5,7 @@ import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-rou
 import { Search, Camera, ChevronLeft } from 'lucide-react-native';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
-import { powersync, setupPowerSync } from '@/powersync/setup';
+import { powersync, setupPowerSync } from '@/powersync/system';
 import { GrowerDeliveryNoteRecord, HessianRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
 

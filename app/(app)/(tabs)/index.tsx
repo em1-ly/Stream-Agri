@@ -1,6 +1,7 @@
-import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, StatusBar } from 'react-native'
-import React, { useCallback, useState, useEffect } from 'react'
+import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, StatusBar, InteractionManager } from 'react-native'
+import React, { useCallback, useState, useEffect, useRef } from 'react'
 import { CircleUserRound, FolderSync, Wifi, Users, Settings, BarChart, Leaf, ChevronRight, Building, UserCheck, FileCheck, UserX, User, Truck } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 
 import { useSession } from '@/authContext';
 import { exportDatabase } from '@/export-db';
@@ -26,6 +27,7 @@ const index = () => {
     rejected: 0
   });
   const [loadingStats, setLoadingStats] = useState(true);
+  const navigationInProgress = useRef(false);
   console.log(session)
 
   // Fetch server IP and grower stats on component mount
@@ -165,6 +167,32 @@ const index = () => {
   // Calculate dynamic tile sizes based on screen width
   const screenWidth = Dimensions.get('window').width;
   const tileSize = (screenWidth - 48) / 2; // 48 = 24px padding on each side + 8px gap between tiles
+
+  // Optimized navigation handler with immediate feedback for lower-end devices
+  const handleNavigation = useCallback((route: string) => {
+    // Prevent double-taps on slower devices
+    if (navigationInProgress.current) return;
+    navigationInProgress.current = true;
+    
+    // Navigate immediately (most important for perceived performance)
+    router.push(route as any);
+    
+    // Haptic feedback after navigation (non-blocking)
+    // Use setTimeout to avoid blocking navigation on slower devices
+    setTimeout(() => {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
+          // Silently fail on devices that don't support haptics
+        });
+      } catch (e) {
+        // Ignore haptic errors
+      }
+      // Reset navigation lock after a short delay
+      setTimeout(() => {
+        navigationInProgress.current = false;
+      }, 300);
+    }, 0);
+  }, [router]);
   
   return (
     <>
@@ -172,7 +200,10 @@ const index = () => {
       headerTitle: () => null,
       headerShown: true,
       headerRight: () => (
-        <TouchableOpacity onPress={() => router.push('/(app)/settings' as any)}>
+        <TouchableOpacity 
+          activeOpacity={0.6}
+          onPress={() => handleNavigation('/(app)/settings')}
+        >
           <View className='flex flex-row items-center gap-2 mr-4'>
             {pendingUploads > 0 && (
               <View className="px-2 py-1 rounded-full bg-yellow-500">
@@ -193,7 +224,10 @@ const index = () => {
         </TouchableOpacity>
       ),
       headerLeft: () => (
-        <TouchableOpacity onPress={() => router.push('/(app)/settings' as any)}>
+        <TouchableOpacity 
+          activeOpacity={0.6}
+          onPress={() => handleNavigation('/(app)/settings')}
+        >
           <View className='flex flex-row items-center gap-2 ml-4'>
             <Building size={25} color="#1AD3BB" />
             {/* <Text className="ml-1 text-[#65435C] font-semibold">{session?.name}</Text> */}
@@ -219,7 +253,8 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/receiving' as any)}
+          activeOpacity={0.7}
+          onPress={() => handleNavigation('/(app)/receiving')}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
@@ -239,7 +274,8 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/inventory' as any)}
+          activeOpacity={0.7}
+          onPress={() => handleNavigation('/(app)/inventory')}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
@@ -259,7 +295,8 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/datacapturing' as any)}
+          activeOpacity={0.7}
+          onPress={() => handleNavigation('/(app)/datacapturing')}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
@@ -279,7 +316,8 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/floor-dispatch' as any)}
+          activeOpacity={0.7}
+          onPress={() => handleNavigation('/(app)/floor-dispatch')}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>
@@ -299,7 +337,8 @@ const index = () => {
         <TouchableOpacity 
           style={{ width: tileSize, height: tileSize }}
           className='bg-white rounded-2xl p-4 mb-4 shadow-sm'
-          onPress={() => router.push('/(app)/settings' as any)}
+          activeOpacity={0.7}
+          onPress={() => handleNavigation('/(app)/settings')}
         >
           <View className='flex-1 justify-between'>
             <View className='h-12 w-12 bg-[#65435C] rounded-xl items-center justify-center'>

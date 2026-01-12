@@ -717,14 +717,23 @@ export default function AddBaleToGDNoteScreen() {
           />
           <TouchableOpacity 
             className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center" 
-            onPress={() => router.push({
+            onPress={() => {
+              Keyboard.dismiss();
+              router.push({
               pathname: '/receiving/barcode-scanner',
               params: { scanType: 'document' }
-            })}
+              });
+            }}
           >
             <Camera color="white" size={20} />
           </TouchableOpacity>
-          <TouchableOpacity className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center" onPress={handleSearch}>
+          <TouchableOpacity 
+            className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center" 
+            onPress={() => {
+              Keyboard.dismiss();
+              handleSearch();
+            }}
+          >
             <Search color="white" size={20} />
           </TouchableOpacity>
         </View>

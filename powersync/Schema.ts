@@ -1010,6 +1010,8 @@ const warehouse_instruction = new Table({
   // Odoo model: warehouse.instruction
   name: column.text,
   status: column.text,
+  product_id: column.integer,
+  destination_warehouse_id: column.integer,
   total_allocated_mass: column.real,
   total_used_mass: column.real,
   total_remaining_mass: column.real,
@@ -1048,6 +1050,9 @@ const warehouse_bale_grade = new Table({
 const warehouse_transport = new Table({
   // Odoo model: warehouse.transport
   name: column.text,
+  active: column.integer, // Boolean
+  create_date: column.text,
+  write_date: column.text,
 });
 
 const warehouse_location = new Table({
@@ -1315,6 +1320,7 @@ const warehouse_dispatch_note = new Table({
   create_date: column.text,
   write_date: column.text,
   mobile_app_id: column.text,
+  no_transportation_details: column.integer, // Boolean
 });
 
 const warehouse_dispatch_bale = new Table({

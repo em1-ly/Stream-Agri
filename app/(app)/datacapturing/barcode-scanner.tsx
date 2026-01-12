@@ -95,20 +95,21 @@ export default function BarcodeScannerScreen() {
 
     try {
       Vibration.vibrate(200);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.log('Could not play sound or haptic:', error);
     }
 
     setScanned(true);
 
-    // Return immediately after showing the barcode briefly
+    // Return immediately after detection to provide instant feedback
+    // Defer navigation to next tick to ensure camera UI is responsive
     setTimeout(() => {
       router.replace({
         pathname: returnTo as any,
         params: { scannedBarcode: normalized }
       });
-    }, 200);
+    }, 0);
   };
 
   if (hasPermission === null) {

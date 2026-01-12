@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter, useFocusEffect, useNavigation } from 'expo-router';
 import { StackActions } from '@react-navigation/native';
 import React from 'react';
@@ -210,6 +210,7 @@ const ScaleBaleScreen = () => {
 
   // Original actionScanBale function with enhanced error handling
   const actionScanBale = useCallback(async () => {
+    Keyboard.dismiss();
     // Store the barcode to clear it in finally block
     const barcodeToProcess = scaleBarcode;
     let docNum = '';
@@ -878,6 +879,7 @@ const ScaleBaleScreen = () => {
 
   // Enhanced handleOpenScanner function that processes after scanning
   const handleOpenScanner = useCallback(() => {
+    Keyboard.dismiss();
     // Navigate on next frame to keep UI responsive
     const nav = () => router.replace({
       pathname: '/receiving/barcode-scanner',

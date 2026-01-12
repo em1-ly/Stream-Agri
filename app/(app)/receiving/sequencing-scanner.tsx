@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, Keyboard } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 // Safe storage wrapper: falls back to in-memory store if native module is unavailable
@@ -242,6 +242,7 @@ const SequencingScannerScreen = () => {
   };
 
   const handleStartScanning = async () => {
+    Keyboard.dismiss();
     if (!selectedSellingPoint || !selectedFloorSale || !row) {
       Alert.alert('Missing Information', 'Please fill in Selling Point, Floor Sale and Row Number before scanning.');
       return;
@@ -368,6 +369,7 @@ const SequencingScannerScreen = () => {
           <View className="mb-6 p-4 bg-gray-50 rounded-lg">
             <TouchableOpacity 
               onPress={async () => {
+                Keyboard.dismiss();
                 if (!selectedSellingPoint || !selectedFloorSale) {
                   Alert.alert('Missing Information', 'Please fill in Selling Point and Floor Sale before scanning.');
                   return;

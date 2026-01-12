@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 
 interface BarcodeScannerProps {
   scanType?: 'document' | 'bale';
+  barcodeType?: 'CTL' | 'TPZ' | 'MTC'; // New prop for barcode type
   onBarcodeScanned: (barcode: string) => void;
   onClose: () => void;
   title?: string;
@@ -22,6 +23,7 @@ interface BarcodeScannerProps {
 
 export default function BarcodeScanner({ 
   scanType = 'document', 
+  barcodeType = 'CTL', // Default to CTL (Code39 Mod43) if not specified
   onBarcodeScanned, 
   onClose,
   title,
@@ -36,14 +38,15 @@ export default function BarcodeScanner({
   const [highlightedBarcode, setHighlightedBarcode] = useState<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [lastDetectedValue, setLastDetectedValue] = useState<string | null>(null); // Re-introduce for stability check
   const cameraRef = useRef<CameraView>(null);
 
   // Validate 10-digit Code 39 barcode with Modulo 43 check digit
   const validateCheckDigit = (barcode: string): boolean => {
-    console.log('🔍 Validating barcode as Code 39:', barcode);
+    console.log('🔍 Validating barcode as Code 39 (Modulo 43):', barcode);
 
     if (barcode.length !== 10) {
-      console.log('❌ Barcode is not 10 characters long for Code 39 validation');
+      console.log('❌ Code 39 barcode is not 10 characters long. Length:', barcode.length);
       return false;
     }
 
@@ -72,6 +75,15 @@ export default function BarcodeScanner({
     console.log(`🔍 Code 39 validation: Data=${data}, Check=${checkChar}, Calculated=${calculatedCheckChar}, Valid=${isValid}`);
       
     return isValid;
+  };
+
+  // Validate Code 128 barcode with Modulo 103 check digit (simplified - most hardware handles this)
+  const validateMod103 = (barcode: string): boolean => {
+    // For simplicity, we assume the scanner hardware/library handles the Modulo 103
+    // check digit validation for Code 128. This function primarily checks format and content.
+    console.log('🔍 Validating barcode as Code 128 (Modulo 103 assumed by scanner):', barcode);
+    // We might add more specific content checks here later if needed for particular Code 128 variants.
+    return true; 
   };
 
   useEffect(() => {
@@ -108,19 +120,99 @@ export default function BarcodeScanner({
   const handleDetectedCode = async (type: string, value: string) => {
     if (isScanning) return; // Prevent multiple scans
     
-    setIsScanning(true);
+    // Stability check: require the same value twice to prevent phantom/accidental scans
+    if (value !== lastDetectedValue) {
+      setLastDetectedValue(value);
+      return;
+    }
     
-    // Do not modify  the scanned value; preserve exactly as read by camera
+    setIsScanning(true);
+    setLastDetectedValue(null); // Reset for next session
+    
+    // Do not modify the scanned value; preserve exactly as read by camera
     let normalized = value;
+    let isValid = true;
+    let validationError = null;
 
-    // If QR code, accept as-is and skip Code 39 validation
-    const isQr = type === 'qr' || type === 'org.iso.qr';
-    if (!isQr) {
-      // Validate check digit ONLY for Code 39 bales (10-char)
-      if (!validateCheckDigit(normalized)) {
+    // Determine rendering and validation based on barcodeType
+    switch (barcodeType) {
+      case 'CTL': // Code 39 Modulo 43
+        // For CTL, check format first - if it matches Code 39 format (10 chars, valid chars, passes check digit),
+        // accept it even if scanner reports different type (some scanners misidentify)
+        if (normalized.length === 10) {
+          // Check if it's a valid Code 39 format (all characters in Code 39 set)
+          const code39Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+          const allValidChars = normalized.split('').every(char => code39Chars.includes(char));
+          
+          if (allValidChars) {
+            // Validate check digit - if valid, accept regardless of scanner-reported type
+            isValid = validateCheckDigit(normalized);
+            validationError = isValid ? null : 'Invalid Barcode';
+          } else {
+            isValid = false;
+            validationError = `Invalid Code 39 characters. Expected Code 39 for CTL, but scanner reported ${type}`;
+          }
+        } else if (type !== 'code39' && type !== 'org.iso.code39') {
+          isValid = false;
+          validationError = `Expected Code 39 for CTL, but got ${type}. Barcode length: ${normalized.length}`;
+        } else {
+          isValid = validateCheckDigit(normalized);
+          validationError = isValid ? null : 'Invalid Code 39 (Modulo 43)';
+        }
+        break;
+      case 'TPZ': // Code 128 Length 16
+        if (type !== 'code128' && type !== 'org.iso.code128') {
+          isValid = false;
+          validationError = `Expected Code 128 for TPZ, but got ${type}`;
+        } else if (normalized.length !== 16) {
+          isValid = false;
+          validationError = 'Expected length 16 for TPZ Code 128';
+        } else {
+          isValid = validateMod103(normalized); // Assumed by scanner
+          validationError = isValid ? null : 'Invalid Code 128 (Modulo 103)';
+        }
+        break;
+      case 'MTC': // Code 128 Start TV Length 10
+        if (type !== 'code128' && type !== 'org.iso.code128') {
+          isValid = false;
+          validationError = `Expected Code 128 for MTC, but got ${type}`;
+        } else if (!normalized.startsWith('TV') || normalized.length !== 10) {
+          isValid = false;
+          validationError = 'Expected Code 128 starting with \'TV\' and length 10 for MTC';
+        } else {
+          isValid = validateMod103(normalized); // Assumed by scanner
+          validationError = isValid ? null : 'Invalid Code 128 (Modulo 103)';
+        }
+        break;
+      default: // Default to CTL (Code39 Modulo 43)
+        // For default/CTL, check format first - if it matches Code 39 format, accept it
+        if (normalized.length === 10) {
+          // Check if it's a valid Code 39 format (all characters in Code 39 set)
+          const code39Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+          const allValidChars = normalized.split('').every(char => code39Chars.includes(char));
+          
+          if (allValidChars) {
+            // Validate check digit - if valid, accept regardless of scanner-reported type
+            isValid = validateCheckDigit(normalized);
+            validationError = isValid ? null : 'Invalid Code 39 (Modulo 43) check digit';
+          } else {
+            isValid = false;
+            validationError = `Invalid Code 39 characters. Expected Code 39, but scanner reported ${type}`;
+          }
+        } else if (type !== 'code39' && type !== 'org.iso.code39') {
+          isValid = false;
+          validationError = `Expected Code 39 by default, but got ${type}. Barcode length: ${normalized.length}`;
+        } else {
+          isValid = validateCheckDigit(normalized);
+          validationError = isValid ? null : 'Invalid Code 39 (Modulo 43)';
+        }
+        break;
+    }
+
+    if (!isValid) {
         // Show error feedback
         Vibration.vibrate([0, 200, 100, 200]); // Error pattern
-        setScanError('Invalid Barcode'); // Show temporary error
+      setScanError(validationError);
         
         // Reset after a delay to allow scanning again
         setTimeout(() => {
@@ -128,7 +220,6 @@ export default function BarcodeScanner({
           setIsScanning(false);
         }, 2000);
         return;
-      }
     }
 
     // On success, show the highlighted barcode
@@ -138,7 +229,7 @@ export default function BarcodeScanner({
     try {
       // Use vibration for beep sound
       Vibration.vibrate(200); // Short beep
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.log('Could not play sound or haptic:', error);
     }
@@ -148,8 +239,7 @@ export default function BarcodeScanner({
       setScanned(true);
     }
 
-    // Call the callback after a brief delay to show the highlighted barcode
-    setTimeout(() => {
+    // Call the callback immediately to close modal faster
       onBarcodeScanned(normalized);
       
       // If stayOnCamera is true, reset scanning state after callback so user can scan again
@@ -159,7 +249,6 @@ export default function BarcodeScanner({
           setHighlightedBarcode(null);
         }, 1000); // Show success for 1 second, then allow next scan
       }
-    }, 10);
   };
 
   if (hasPermission === null) {
@@ -187,9 +276,9 @@ export default function BarcodeScanner({
   }
 
   return (
-    <View className="flex-1 bg-[#65435C] py-10">
+    <View className="flex-1 bg-[#65435C] pt-0 pb-10">
       {/* Header with buttons and info - Moved outside CameraView for better touch handling */}
-      <View className="h-24 bg-black flex-row items-center justify-between px-5 pt-4 z-50">
+      <View className="h-24 bg-black flex-row items-center justify-between px-5 pt-0 z-50">
         <View className="flex-1 flex-row items-center">
           <TouchableOpacity
             className="bg-gray-800 rounded-full p-3 mr-3"

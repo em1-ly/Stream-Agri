@@ -61,6 +61,11 @@ export const EXPORT_TABLES: ExportTable[] = [
     displayName: 'Sales Masters',
     query: 'SELECT * FROM data_processing_salesmaster'
   },
+  {
+    name: 'warehouse_dispatch_note',
+    displayName: 'Dispatch Notes',
+    query: 'SELECT * FROM warehouse_dispatch_note'
+  },
 
 
 

@@ -523,6 +523,7 @@ export default function AddNewBaleScreen() {
   };
 
   const handleSaveBale = async () => {
+    Keyboard.dismiss();
     if (!growerNote) {
       Alert.alert('Error', 'No delivery note found');
       return;
@@ -769,6 +770,7 @@ export default function AddNewBaleScreen() {
   };
 
   const handleScanBarcode = () => {
+    Keyboard.dismiss();
     router.push({
       pathname: '/receiving/barcode-scanner',
       params: { 
@@ -1016,7 +1018,10 @@ export default function AddNewBaleScreen() {
           />
           <TouchableOpacity 
             className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center"
-            onPress={handleScanBarcode}
+            onPress={() => {
+              Keyboard.dismiss();
+              handleScanBarcode();
+            }}
             disabled={scannedCount >= expectedCount}
           >
             <Camera color="white" size={20} />

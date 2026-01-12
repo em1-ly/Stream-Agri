@@ -380,8 +380,11 @@ export class Connector implements PowerSyncBackendConnector {
               delete createData['state'];
             }
             // The Odoo wizard now uses 'driver_id' instead of 'driver_name'.
-            if ('driver_name' in createData) {
-              delete createData['driver_name'];
+            // Also remove related fields to avoid conflicts during creation.
+            for (const field of ['driver_name', 'driver_national_id', 'driver_cellphone']) {
+              if (field in createData) {
+                delete createData[field];
+              }
             }
           } else if (originalTableName === 'warehouse_dispatch_note') {
             createType = 'warehouse_dispatch_create_note';
@@ -391,6 +394,8 @@ export class Connector implements PowerSyncBackendConnector {
             if ('mobile_app_id' in createData) {
               delete createData['mobile_app_id'];
             }
+            // Note: instruction_id is kept as-is for the wizard (wizard expects instruction_id, not shipping_instruction_id)
+            // The wizard will map it to shipping_instruction_id when creating the actual dispatch note
             // The wizard does not accept derived/readonly fields from the note model
             for (const field of [
               'reference',
@@ -422,8 +427,11 @@ export class Connector implements PowerSyncBackendConnector {
               (createData as any).no_transportation_details = true;
             }
             // The Odoo wizard now uses 'driver_id' instead of 'driver_name'.
-            if ('driver_name' in createData) {
-              delete createData['driver_name'];
+            // Also remove related fields to avoid conflicts during creation.
+            for (const field of ['driver_name', 'driver_national_id', 'driver_cellphone']) {
+              if (field in createData) {
+                delete createData[field];
+              }
             }
           } else if (originalTableName === 'floor_dispatch_bale') {
             createType = 'floor_dispatch_add_bale';
@@ -452,9 +460,28 @@ export class Connector implements PowerSyncBackendConnector {
             } else if (originDocument === 'dispatch_pallet') {
               // Pallet dispatch: delegate to warehouse.dispatch.pallet.wizard.action_dispatch_pallet
               createType = 'warehouse_dispatch_action_dispatch_pallet';
+              
+              // 1) Find the rack barcode from the warehouse_pallet table using the shipped_pallet_id
+              let rackBarcode = createData.logistics_barcode; // Fallback
+              
+              if (createData.shipped_pallet_id) {
+                try {
+                  const palletRecord = await database.getOptional<any>(
+                    'SELECT barcode FROM warehouse_pallet WHERE id = ?',
+                    [createData.shipped_pallet_id]
+                  );
+                  if (palletRecord?.barcode) {
+                    rackBarcode = palletRecord.barcode;
+                    console.log(`✅ Resolved rack barcode '${rackBarcode}' for pallet ID ${createData.shipped_pallet_id}`);
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Failed to resolve rack barcode for sync:', e);
+                }
+              }
+
               createData = {
                 dispatch_note_id: createData.dispatch_note_id,
-                barcode: createData.barcode,
+                barcode: rackBarcode,
               };
               console.log('🔍 warehouse_dispatch_bale (pallet) - Model/Type:', createType);
               console.log('🔍 warehouse_dispatch_bale (pallet) - mapped data:', JSON.stringify(createData, null, 2));
@@ -490,6 +517,18 @@ export class Connector implements PowerSyncBackendConnector {
             };
             console.log('🔍 warehouse_data_capturing - Model/Type:', createType);
             console.log('🔍 warehouse_data_capturing - mapped data:', JSON.stringify(createData, null, 2));
+          } else if (originalTableName === 'warehouse_pallet') {
+            createType = 'warehouse_pallet_create';
+            // Map to unified endpoint parameters
+            createData = {
+              warehouse_id: Number(createData.warehouse_id),
+              location_id: createData.location_id ? Number(createData.location_id) : undefined,
+              barcode: createData.barcode,
+              grade_id: Number(createData.grade_id),
+              pallet_capacity: Number(createData.pallet_capacity || 12)
+            };
+            console.log('🔍 warehouse_pallet - Model/Type:', createType);
+            console.log('🔍 warehouse_pallet - mapped data:', JSON.stringify(createData, null, 2));
           } else if (originalTableName === 'warehouse_shipped_bale') {
             // Check if this is a satellite dispatch operation
             const isSatelliteDispatch = 
@@ -554,6 +593,13 @@ export class Connector implements PowerSyncBackendConnector {
             } else if (tableName.includes('odoo_gms_')) {
               tableName = tableName.replace('odoo_gms_', 'odoo_gms.')
               createType = tableName;
+            } else if (tableName.startsWith('warehouse_') && !tableName.includes('warehouse_shipped_bale') && !tableName.includes('warehouse_dispatch_bale')) {
+              createType = tableName.replace('warehouse_', 'warehouse.');
+            }
+            
+            // Ensure the client-generated UUID is always sent as 'id' for model matching
+            if (!createData['id']) {
+              createData['id'] = id;
             }
           }
 
@@ -586,8 +632,8 @@ export class Connector implements PowerSyncBackendConnector {
           const serverRecord = await response.data
           console.log('serverRecord', serverRecord)
           
-          // Check if the server returned an error
-          if (serverRecord?.result && serverRecord.result.success === false) {
+          // Check if the server returned an error (either success: false or message_type: 'error')
+          if (serverRecord?.result && (serverRecord.result.success === false || serverRecord.result.message_type === 'error')) {
             const errorMessage = serverRecord.result.message || 'Unknown error creating record';
             await logToSystem('error', `Create failed: ${errorMessage}`, op, serverRecord.result);
             
@@ -1362,6 +1408,77 @@ export class Connector implements PowerSyncBackendConnector {
               continue; // Skip the regular PATCH operation
             }
           }
+
+          // Handle pallet receiving operations (moving a pallet to a location) - call unified API endpoint instead of regular PATCH
+          if (isPalletReceivingOperation) {
+            try {
+              // Need barcode and warehouse_id for the unified endpoint
+              const palletRecord = await database.get<any>(
+                `SELECT barcode, warehouse_id FROM warehouse_pallet WHERE id = ?`,
+                [id]
+              );
+
+              if (!palletRecord || !palletRecord.barcode) {
+                console.warn('⚠️ Cannot sync pallet receiving operation - barcode missing for pallet:', id);
+                continue; // Skip this operation
+              }
+
+              const locationId = recordData.location_id || (currentRecord as Record<string, any>)?.['location_id'];
+              const warehouseId = palletRecord.warehouse_id || (currentRecord as Record<string, any>)?.['warehouse_id'];
+
+              console.log('📤 Receiving pallet via unified API endpoint:', {
+                barcode: palletRecord.barcode,
+                warehouse_id: warehouseId,
+                location_id: locationId
+              });
+
+              const palletOptions = {
+                method: 'POST',
+                url: `${normalizedServerURL}/api/fo/create_unified`,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-FO-TOKEN': token
+                },
+                data: {
+                  jsonrpc: '2.0',
+                  method: 'call',
+                  params: {
+                    type: 'warehouse_pallet_scan_rack',
+                    data: {
+                      warehouse_id: Number(warehouseId),
+                      location_id: Number(locationId),
+                      pallet_barcode: palletRecord.barcode
+                    }
+                  }
+                }
+              };
+
+              const response = await axios.request(palletOptions);
+              const serverRecord = response.data;
+
+              if (serverRecord?.result && serverRecord.result.success === false) {
+                const errorMessage = serverRecord.result.message || 'Unknown error receiving pallet';
+                const warningMessage = `Server rejected pallet receiving (barcode: ${palletRecord.barcode}): ${errorMessage}. Treating as handled - transaction will complete (no retry)`;
+                console.warn(`⚠️ ${warningMessage}`);
+                await logToSystem('warning', warningMessage, op, { errorMessage, barcode: palletRecord.barcode, serverResponse: serverRecord.result });
+                continue; 
+              } else {
+                console.log(`✅ Pallet received successfully:`, serverRecord.result);
+                await logToSystem('success', `Pallet received successfully.`, op, serverRecord.result);
+                continue; 
+              }
+            } catch (error: any) {
+              const errorMessage = error?.message || String(error) || 'Unknown error';
+              if (isNetworkError(error)) {
+                console.error(`❌ Network error during pallet receiving (pallet id: ${id}): ${errorMessage}. Will retry.`);
+                throw error; 
+              }
+              const warningMessage = `Pallet receiving request failed (pallet id: ${id}): ${errorMessage}. Treating as handled - transaction will complete (no retry)`;
+              console.warn(`⚠️ ${warningMessage}`);
+              await logToSystem('warning', warningMessage, op, { error: errorMessage });
+              continue; 
+            }
+          }
           
           // Handle data capturing updates via unified endpoint
           if (isDataCapturing) {
@@ -1820,6 +1937,13 @@ export class Connector implements PowerSyncBackendConnector {
                 continue;
               }
               
+              // Map instruction_id to shipping_instruction_id for warehouse_dispatch_note
+              if (tableName === 'warehouse_dispatch_note' && key === 'instruction_id') {
+                newRecordDataToSend['shipping_instruction_id'] = value;
+                console.log(`  ✅ Mapped instruction_id to shipping_instruction_id: ${value}`);
+                continue;
+              }
+              
               // Only include fields that have changed (or are new)
               const currentValue = (currentRecord as Record<string, any>)?.[key];
               // Use loose comparison to handle type mismatches (1 vs true, etc.)
@@ -1846,7 +1970,7 @@ export class Connector implements PowerSyncBackendConnector {
                 continue; // Skip this operation
               }
 
-              const palletId = recordData.pallet_id || (currentRecord as Record<string, any>)?.['pallet_id'] || baleRecord.pallet_id;
+              let palletId = recordData.pallet_id || (currentRecord as Record<string, any>)?.['pallet_id'] || baleRecord.pallet_id;
               const warehouseId = recordData.warehouse_id || (currentRecord as Record<string, any>)?.['warehouse_id'] || baleRecord.warehouse_id;
               const locationId = recordData.location_id || (currentRecord as Record<string, any>)?.['location_id'] || baleRecord.location_id;
               const receivedMass = recordData.received_mass || baleRecord.received_mass || null;
@@ -1856,11 +1980,59 @@ export class Connector implements PowerSyncBackendConnector {
                 continue; // Skip this operation
               }
 
+              // Resolve pallet_id if it's a UUID to the actual Odoo ID
+              // Note: warehouse_pallet table doesn't have mobile_app_id column
+              const palletIdStr = String(palletId);
+              const isUUID = palletIdStr.includes('-') || isNaN(Number(palletId));
+              
+              if (isUUID) {
+                // It's a UUID - check if pallet exists locally
+                // If it exists, it means the pallet was created locally but may not have synced yet
+                // Since warehouse_pallet doesn't track mobile_app_id, we can't map UUID to Odoo ID
+                // We need to wait for the pallet to sync to Odoo first, then the pallet_id reference
+                // in warehouse_shipped_bale should be updated to the Odoo ID
+                const palletExists = await database.getOptional<any>(
+                  `SELECT id FROM warehouse_pallet WHERE id = ? LIMIT 1`,
+                  [palletId]
+                );
+                
+                if (palletExists) {
+                  // Pallet exists locally with UUID, but we need Odoo ID for the API
+                  // Skip this operation - it will be retried after pallet syncs and pallet_id is updated
+                  console.warn(`⚠️ Pallet ID is UUID (${palletIdStr}). Cannot resolve to Odoo ID (warehouse_pallet doesn't track mobile_app_id). Waiting for pallet to sync first.`);
+                  continue;
+                } else {
+                  console.warn(`⚠️ Pallet with UUID ${palletIdStr} not found. Pallet may not exist yet.`);
+                  continue;
+                }
+              }
+              
+              // If pallet_id is already a number, verify it exists
+              const palletExists = await database.getOptional<any>(
+                `SELECT id FROM warehouse_pallet WHERE id = ? LIMIT 1`,
+                [palletId]
+              );
+              
+              if (!palletExists) {
+                console.warn(`⚠️ Pallet with ID ${palletId} not found in local database.`);
+                continue;
+              }
+
+              // Ensure all IDs are numbers
+              const palletIdNum = Number(palletId);
+              const warehouseIdNum = Number(warehouseId);
+              const locationIdNum = Number(locationId);
+
+              if (isNaN(palletIdNum) || isNaN(warehouseIdNum) || isNaN(locationIdNum)) {
+                console.warn(`⚠️ Invalid ID format - pallet_id: ${palletId}, warehouse_id: ${warehouseId}, location_id: ${locationId}`);
+                continue; // Skip this operation
+              }
+
               console.log('📤 Rack loading bale via unified API endpoint:', {
                 barcode: baleRecord.barcode,
-                pallet_id: palletId,
-                warehouse_id: warehouseId,
-                location_id: locationId
+                pallet_id: palletIdNum,
+                warehouse_id: warehouseIdNum,
+                location_id: locationIdNum
               });
 
               const rackLoadOptions = {
@@ -1877,9 +2049,9 @@ export class Connector implements PowerSyncBackendConnector {
                     type: 'warehouse_pallet_scan_bale',
                     data: {
                       barcode: baleRecord.barcode,
-                      pallet_id: Number(palletId),
-                      warehouse_id: Number(warehouseId),
-                      location_id: Number(locationId),
+                      pallet_id: palletIdNum,
+                      warehouse_id: warehouseIdNum,
+                      location_id: locationIdNum,
                       ...(receivedMass !== null ? { received_mass: receivedMass } : {})
                     }
                   }

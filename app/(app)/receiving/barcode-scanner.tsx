@@ -745,7 +745,6 @@ export default function BarcodeScannerScreen() {
           }}
           stayOnCamera={returnTo === 'scale-bale'}
           scanStatus={scanStatus}
-          barcodeType='CTL'
         />
         
       </View>

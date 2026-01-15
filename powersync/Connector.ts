@@ -417,15 +417,42 @@ export class Connector implements PowerSyncBackendConnector {
             // If no transportation details were provided on the mobile side,
             // mirror the wizard's "No Transportation Details" flag so it
             // does not require transport/driver fields.
+            // Note: We now trust the no_transportation_details field from the app
+            // and have updated the Odoo wizard to skip validation if mobile_app_id is set.
             const hasTransportDetails =
               createData.transport_id ||
               createData.truck_reg_number ||
               createData.driver_name ||
               createData.driver_national_id ||
               createData.driver_cellphone;
-            if (!hasTransportDetails) {
+            
+            // Only force True if it was NOT explicitly provided by the app
+            if (!hasTransportDetails && createData.no_transportation_details === undefined) {
               (createData as any).no_transportation_details = true;
             }
+
+            // Resolve UUIDs for driver_id and transport_id if they are present
+            const m2oFields = ['driver_id', 'transport_id'];
+            for (const field of m2oFields) {
+              const val = createData[field];
+              if (val && typeof val === 'string' && val.includes('-')) {
+                const relatedTable = field === 'driver_id' ? 'warehouse_driver' : 'warehouse_transport';
+                // Try to find by id (for unsynced) or mobile_app_id (for synced)
+                const relatedRecord = await database.getOptional<any>(
+                  `SELECT id FROM ${relatedTable} WHERE id = ? OR mobile_app_id = ? LIMIT 1`,
+                  [val, val]
+                );
+                if (relatedRecord && relatedRecord.id && !isNaN(Number(relatedRecord.id))) {
+                  createData[field] = Number(relatedRecord.id);
+                  console.log(`✅ Resolved ${field} UUID ${val} to Odoo ID: ${createData[field]} for PUT`);
+                } else {
+                  // Send as-is (the Odoo wizard handle_inventory_unified_create resolves UUIDs using mobile_app_id)
+                  console.log(`ℹ️ ${field} UUID ${val} not resolved to Odoo ID yet. Sending as-is.`);
+                  createData[field] = val;
+                }
+              }
+            }
+
             // The Odoo wizard now uses 'driver_id' instead of 'driver_name'.
             // Also remove related fields to avoid conflicts during creation.
             for (const field of ['driver_name', 'driver_national_id', 'driver_cellphone']) {
@@ -467,8 +494,8 @@ export class Connector implements PowerSyncBackendConnector {
               if (createData.shipped_pallet_id) {
                 try {
                   const palletRecord = await database.getOptional<any>(
-                    'SELECT barcode FROM warehouse_pallet WHERE id = ?',
-                    [createData.shipped_pallet_id]
+                    'SELECT barcode FROM warehouse_pallet WHERE id = ? OR mobile_app_id = ?',
+                    [createData.shipped_pallet_id, createData.shipped_pallet_id]
                   );
                   if (palletRecord?.barcode) {
                     rackBarcode = palletRecord.barcode;
@@ -706,9 +733,32 @@ export class Connector implements PowerSyncBackendConnector {
           // TODO: Instruct your backend API to PATCH a record
          // Get the table name from the operation
          const tableName = op.table;
-         const patchId = record.id; // Declare at outer scope for catch block
+         let patchId = record.id; // Initial value, might be Odoo ID or UUID
          let odooTableName = ''; // Declare at outer scope for catch block
          let lastSyncedDate: Date = new Date();
+
+         // Try to use mobile_app_id if available in local record
+         // Only check tables known to have this column to avoid SQL errors
+         const tablesWithMobileId = [
+           'warehouse_driver', 
+           'warehouse_transport', 
+           'warehouse_pallet', 
+           'warehouse_dispatch_note', 
+           'floor_dispatch_note', 
+           'warehouse_missing_dnote'
+         ];
+         
+         if (tablesWithMobileId.includes(tableName)) {
+           try {
+             const localRec = await database.getOptional<any>(`SELECT mobile_app_id FROM ${tableName} WHERE id = ?`, [record.id]);
+             if (localRec?.mobile_app_id) {
+               patchId = localRec.mobile_app_id;
+               console.log(`ℹ️ Using mobile_app_id ${patchId} for PATCH identifier instead of local id ${record.id}`);
+             }
+           } catch (e) {
+             console.warn(`⚠️ Failed to check mobile_app_id for table ${tableName}:`, e);
+           }
+         }
 
          // Get sync status information
          try {
@@ -1068,11 +1118,11 @@ export class Connector implements PowerSyncBackendConnector {
                 continue; // Skip this operation
               }
               
-              // Get the new grade from the update (must be in recordData since we're updating it)
-              const newGradeId = recordData.grade;
+              // Get the new grade from the update or from the current record if not changed in this specific op
+              const newGradeId = recordData.grade || (currentRecord as any)?.grade;
               
               if (!newGradeId) {
-                console.warn('⚠️ Cannot sync reclassification operation - grade_id missing in update data for bale:', id);
+                console.warn('⚠️ Cannot sync reclassification operation - grade_id missing for bale:', id);
                 continue; // Skip this operation
               }
               
@@ -1288,7 +1338,7 @@ export class Connector implements PowerSyncBackendConnector {
                   params: {
                     type: 'warehouse_missing_dnote_post',
                     data: {
-                      missing_dnote_id: Number(id)
+                      missing_dnote_id: id
                     }
                   }
                 }
@@ -1414,8 +1464,8 @@ export class Connector implements PowerSyncBackendConnector {
             try {
               // Need barcode and warehouse_id for the unified endpoint
               const palletRecord = await database.get<any>(
-                `SELECT barcode, warehouse_id FROM warehouse_pallet WHERE id = ?`,
-                [id]
+                `SELECT barcode, warehouse_id FROM warehouse_pallet WHERE id = ? OR mobile_app_id = ?`,
+                [id, id]
               );
 
               if (!palletRecord || !palletRecord.barcode) {
@@ -1877,6 +1927,14 @@ export class Connector implements PowerSyncBackendConnector {
                 }
               }
               
+              // For inventory bale tables, trust the record data from PowerSync and include it
+              const isInventoryBale = tableName === 'warehouse_shipped_bale' || tableName === 'receiving_bale';
+              if (isInventoryBale && !(excludeFields.includes(key))) {
+                newRecordDataToSend[key] = value;
+                console.log(`  ✅ Including bale field from PowerSync record: ${key} = ${value}`);
+                continue;
+              }
+              
               // Only include fields that have changed (or are new)
               const currentValue = (currentRecord as Record<string, any>)?.[key];
               
@@ -1944,7 +2002,15 @@ export class Connector implements PowerSyncBackendConnector {
                 continue;
               }
               
-              // Only include fields that have changed (or are new)
+              // For inventory tables, trust the record data from PowerSync and include it
+              const isInventoryTable = tableName.startsWith('warehouse_') || tableName.startsWith('floor_dispatch_');
+              if (isInventoryTable) {
+                newRecordDataToSend[key] = value;
+                console.log(`  ✅ Including field from PowerSync record: ${key} = ${value}`);
+                continue;
+              }
+              
+              // For other tables, only include fields that have changed (or are new)
               const currentValue = (currentRecord as Record<string, any>)?.[key];
               // Use loose comparison to handle type mismatches (1 vs true, etc.)
               if (value != currentValue) {
@@ -1954,6 +2020,50 @@ export class Connector implements PowerSyncBackendConnector {
                 console.log(`  ⏭️ Skipping unchanged field: ${key} = ${value}`);
               }
             }
+          }
+
+          // Resolve UUIDs for warehouse_dispatch_note many-to-one fields
+          if (tableName === 'warehouse_dispatch_note') {
+            const m2oFields = ['driver_id', 'transport_id'];
+            let resolutionFailed = false;
+            for (const field of m2oFields) {
+              const val = newRecordDataToSend[field];
+              if (val && typeof val === 'string' && val.includes('-')) {
+                // It's a UUID, resolve to Odoo ID
+                const relatedTable = field === 'driver_id' ? 'warehouse_driver' : 'warehouse_transport';
+                console.log(`🔍 Resolving UUID for ${field} (${val}) in table ${relatedTable}`);
+                
+                // Try to find by id (for unsynced) or mobile_app_id (for synced)
+                const relatedRecord = await database.getOptional<any>(
+                  `SELECT id FROM ${relatedTable} WHERE id = ? OR mobile_app_id = ? LIMIT 1`,
+                  [val, val]
+                );
+                
+                if (relatedRecord && relatedRecord.id && !isNaN(Number(relatedRecord.id))) {
+                  newRecordDataToSend[field] = Number(relatedRecord.id);
+                  console.log(`✅ Resolved ${field} UUID ${val} to Odoo ID: ${newRecordDataToSend[field]}`);
+                } else if (relatedRecord && relatedRecord.id) {
+                  // It's still a UUID locally, but we found the record
+                  console.log(`ℹ️ Found local record for ${field} (${val}), but it's still a UUID. Sending as-is.`);
+                  newRecordDataToSend[field] = val;
+                } else {
+                  // If not found at all, send as-is and hope the server handles it
+                  console.warn(`⚠️ ${field} UUID ${val} not found in local ${relatedTable}. Sending as-is.`);
+                  newRecordDataToSend[field] = val;
+                }
+              }
+            }
+            if (resolutionFailed) continue; // Skip this PATCH and let it retry later
+
+            // Filter out non-Odoo fields for warehouse_dispatch_note
+            // driver_name, driver_national_id, driver_cellphone are related fields or local-only
+            const fieldsToRemove = ['driver_name', 'driver_national_id', 'driver_cellphone'];
+            fieldsToRemove.forEach(f => {
+              if (f in newRecordDataToSend) {
+                console.log(`  🗑️ Removing non-Odoo field from warehouse_dispatch_note PATCH: ${f}`);
+                delete newRecordDataToSend[f];
+              }
+            });
           }
 
           // Handle rack loading operations - call unified API endpoint instead of PATCH
@@ -1971,68 +2081,59 @@ export class Connector implements PowerSyncBackendConnector {
               }
 
               let palletId = recordData.pallet_id || (currentRecord as Record<string, any>)?.['pallet_id'] || baleRecord.pallet_id;
-              const warehouseId = recordData.warehouse_id || (currentRecord as Record<string, any>)?.['warehouse_id'] || baleRecord.warehouse_id;
-              const locationId = recordData.location_id || (currentRecord as Record<string, any>)?.['location_id'] || baleRecord.location_id;
-              const receivedMass = recordData.received_mass || baleRecord.received_mass || null;
+              const warehouseIdVal = recordData.warehouse_id || (currentRecord as Record<string, any>)?.['warehouse_id'] || baleRecord.warehouse_id;
+              const locationIdVal = recordData.location_id || (currentRecord as Record<string, any>)?.['location_id'] || baleRecord.location_id;
+              const receivedMassVal = recordData.received_mass || baleRecord.received_mass || null;
 
-              if (!palletId || !warehouseId || !locationId) {
+              if (!palletId || !warehouseIdVal || !locationIdVal) {
                 console.warn('⚠️ Cannot sync rack loading operation - pallet_id/warehouse_id/location_id missing for bale:', id);
                 continue; // Skip this operation
               }
 
               // Resolve pallet_id if it's a UUID to the actual Odoo ID
-              // Note: warehouse_pallet table doesn't have mobile_app_id column
               const palletIdStr = String(palletId);
               const isUUID = palletIdStr.includes('-') || isNaN(Number(palletId));
               
               if (isUUID) {
-                // It's a UUID - check if pallet exists locally
-                // If it exists, it means the pallet was created locally but may not have synced yet
-                // Since warehouse_pallet doesn't track mobile_app_id, we can't map UUID to Odoo ID
-                // We need to wait for the pallet to sync to Odoo first, then the pallet_id reference
-                // in warehouse_shipped_bale should be updated to the Odoo ID
-                const palletExists = await database.getOptional<any>(
-                  `SELECT id FROM warehouse_pallet WHERE id = ? LIMIT 1`,
-                  [palletId]
+                // It's a UUID - try to resolve to Odoo ID
+                console.log(`🔍 Resolving UUID for pallet_id (${palletIdStr})`);
+                
+                // Try to find by id (for unsynced) or mobile_app_id (for synced)
+                const relatedRecord = await database.getOptional<any>(
+                  `SELECT id FROM warehouse_pallet WHERE id = ? OR mobile_app_id = ? LIMIT 1`,
+                  [palletIdStr, palletIdStr]
                 );
                 
-                if (palletExists) {
-                  // Pallet exists locally with UUID, but we need Odoo ID for the API
-                  // Skip this operation - it will be retried after pallet syncs and pallet_id is updated
-                  console.warn(`⚠️ Pallet ID is UUID (${palletIdStr}). Cannot resolve to Odoo ID (warehouse_pallet doesn't track mobile_app_id). Waiting for pallet to sync first.`);
-                  continue;
+                if (relatedRecord && relatedRecord.id && !isNaN(Number(relatedRecord.id))) {
+                  palletId = Number(relatedRecord.id);
+                  console.log(`✅ Resolved pallet UUID ${palletIdStr} to Odoo ID: ${palletId}`);
                 } else {
-                  console.warn(`⚠️ Pallet with UUID ${palletIdStr} not found. Pallet may not exist yet.`);
-                  continue;
+                  // Resort to mobile id - send the UUID as-is
+                  // The Odoo controller pallet_scan_bale has been updated to resolve UUIDs using mobile_app_id
+                  console.log(`ℹ️ Pallet UUID ${palletIdStr} not resolved to Odoo ID yet. Sending as-is.`);
+                  palletId = palletIdStr;
                 }
               }
               
-              // If pallet_id is already a number, verify it exists
-              const palletExists = await database.getOptional<any>(
-                `SELECT id FROM warehouse_pallet WHERE id = ? LIMIT 1`,
-                [palletId]
-              );
-              
-              if (!palletExists) {
-                console.warn(`⚠️ Pallet with ID ${palletId} not found in local database.`);
-                continue;
-              }
-
-              // Ensure all IDs are numbers
-              const palletIdNum = Number(palletId);
-              const warehouseIdNum = Number(warehouseId);
-              const locationIdNum = Number(locationId);
-
-              if (isNaN(palletIdNum) || isNaN(warehouseIdNum) || isNaN(locationIdNum)) {
-                console.warn(`⚠️ Invalid ID format - pallet_id: ${palletId}, warehouse_id: ${warehouseId}, location_id: ${locationId}`);
-                continue; // Skip this operation
+              // Verify it exists if it was already a number
+              if (typeof palletId === 'number' || !isNaN(Number(palletId))) {
+                const palletIdNum = Number(palletId);
+                const palletExists = await database.getOptional<any>(
+                  `SELECT id FROM warehouse_pallet WHERE id = ? LIMIT 1`,
+                  [palletIdNum]
+                );
+                
+                if (!palletExists) {
+                  console.warn(`⚠️ Pallet with ID ${palletIdNum} not found in local database.`);
+                  // continue; // Still send it, maybe it synced but we don't have it yet
+                }
               }
 
               console.log('📤 Rack loading bale via unified API endpoint:', {
                 barcode: baleRecord.barcode,
-                pallet_id: palletIdNum,
-                warehouse_id: warehouseIdNum,
-                location_id: locationIdNum
+                pallet_id: palletId,
+                warehouse_id: warehouseIdVal,
+                location_id: locationIdVal
               });
 
               const rackLoadOptions = {
@@ -2049,10 +2150,10 @@ export class Connector implements PowerSyncBackendConnector {
                     type: 'warehouse_pallet_scan_bale',
                     data: {
                       barcode: baleRecord.barcode,
-                      pallet_id: palletIdNum,
-                      warehouse_id: warehouseIdNum,
-                      location_id: locationIdNum,
-                      ...(receivedMass !== null ? { received_mass: receivedMass } : {})
+                      pallet_id: palletId,
+                      warehouse_id: Number(warehouseIdVal),
+                      location_id: Number(locationIdVal),
+                      ...(receivedMassVal !== null ? { received_mass: receivedMassVal } : {})
                     }
                   }
                 }
@@ -2139,6 +2240,9 @@ export class Connector implements PowerSyncBackendConnector {
           } else if (tableName.startsWith('receiving_')) {
             // receiving_bale, receiving_transporter_delivery_note, etc. -> receiving.bale, receiving.transporter_delivery_note
             odooTableName = tableName.replace('receiving_', 'receiving.')
+          } else if (tableName.startsWith('warehouse_')) {
+            // warehouse_dispatch_note -> warehouse.dispatch_note
+            odooTableName = tableName.replace('warehouse_', 'warehouse.')
           } else {
             // For other tables, use odoo_gms prefix
             odooTableName = 'odoo_gms.' + tableName
@@ -2150,8 +2254,8 @@ export class Connector implements PowerSyncBackendConnector {
 
           // Configure the request - for JSON type endpoint, include table_name in params
           const patchOptions = {
-            method: 'PATCH',
-            url: `${normalizedServerURL}/api/update_unified/${patchId}?table_name=${odooTableName}&last_synced_date=${newLastSyncedDate}`,
+            method: 'POST', // Use POST for Odoo JSON routes (more reliable than PATCH)
+            url: `${normalizedServerURL}/api/fo/update_unified/${patchId}?table_name=${odooTableName}&last_synced_date=${newLastSyncedDate}`,
             headers: {
               cookie: `${sessionID}; frontend_lang=en_GB`,
               'Content-Type': 'application/json',

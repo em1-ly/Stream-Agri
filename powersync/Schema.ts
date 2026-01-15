@@ -1039,6 +1039,7 @@ const warehouse_driver = new Table({
   active: column.integer, // Boolean
   create_date: column.text,
   write_date: column.text,
+  mobile_app_id: column.text,
 });
 
 const warehouse_bale_grade = new Table({
@@ -1053,6 +1054,7 @@ const warehouse_transport = new Table({
   active: column.integer, // Boolean
   create_date: column.text,
   write_date: column.text,
+  mobile_app_id: column.text,
 });
 
 const warehouse_location = new Table({
@@ -1177,6 +1179,7 @@ const warehouse_pallet = new Table({
   location_id: column.integer,
   create_date: column.text,
   write_date: column.text,
+  mobile_app_id: column.text,
 });
 
 const warehouse_data_capturing = new Table({

@@ -6,7 +6,6 @@ import * as Haptics from 'expo-haptics';
 
 interface BarcodeScannerProps {
   scanType?: 'document' | 'bale';
-  barcodeType?: 'CTL' | 'TPZ' | 'MTC'; // New prop for barcode type
   onBarcodeScanned: (barcode: string) => void;
   onClose: () => void;
   title?: string;
@@ -23,7 +22,6 @@ interface BarcodeScannerProps {
 
 export default function BarcodeScanner({ 
   scanType = 'document', 
-  barcodeType = 'CTL', // Default to CTL (Code39 Mod43) if not specified
   onBarcodeScanned, 
   onClose,
   title,
@@ -117,6 +115,82 @@ export default function BarcodeScanner({
     console.log('🔦 Torch state changed to:', torchOn);
   }, [torchOn]);
 
+  /**
+   * Try to auto-detect the barcode format (CTL, TPZ, MTC) based on the
+   * scanned value itself, without requiring the caller to specify it.
+   *
+   * - CTL           : Code 39 with Modulo 43 check digit, length 10
+   * - CTL_LUGGAGE   : Code 128, length 10 (luggage label)
+   * - TPZ           : Code 128, length 16
+   * - MTC           : Code 128, starts with 'TV', length 10
+   */
+  const detectAndValidateBarcode = (type: string, value: string) => {
+    let isValid = true;
+    let validationError: string | null = null;
+    let detectedType: string | null = null;
+    let normalizedValue = value.trim();
+
+    // 0) Packed QR Code (JSON format)
+    // Format: {"a": ["...", "...", ..., "TV05422125", ...]}
+    if (normalizedValue.startsWith('{') && normalizedValue.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(normalizedValue);
+        if (parsed && Array.isArray(parsed.a) && parsed.a.length >= 9) {
+          const extracted = parsed.a[8]; // Extract barcode at index 8
+          if (extracted) {
+            console.log('✅ Detected Packed QR Code. Extracted barcode:', extracted);
+            normalizedValue = extracted.trim();
+            // Continue to validate the extracted barcode below
+          }
+        }
+      } catch (e) {
+        // Not valid JSON, continue to regular detection
+      }
+    }
+
+    const length = normalizedValue.length;
+
+    // Helper for Code 39 charset check
+    const code39Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+    const allCode39Chars = normalizedValue.split('').every(char => code39Chars.includes(char));
+
+    // 1) MTC: Code 128, starts with 'TV', length 10
+    if (length === 10 && normalizedValue.startsWith('TV')) {
+      isValid = validateMod103(normalizedValue);
+      validationError = isValid ? null : 'Invalid MTC Code 128 (Modulo 103)';
+      return { isValid, validationError, detectedType: 'MTC', normalizedValue };
+    }
+
+    // 2) CTL_LUGGAGE: Code 128, length 10 (generic CTL luggage labels)
+    if (
+      length === 10 &&
+      (type === 'code128' || type === 'org.iso.code128' || type === 'qr' || type === 'org.iso.QRCode')
+    ) {
+      isValid = validateMod103(normalizedValue);
+      validationError = isValid ? null : 'Invalid CTL luggage Code 128 (Modulo 103)';
+      return { isValid, validationError, detectedType: 'CTL_LUGGAGE', normalizedValue };
+    }
+
+    // 3) TPZ: Code 128, length 16
+    if (length === 16) {
+      isValid = validateMod103(normalizedValue);
+      validationError = isValid ? null : 'Invalid TPZ Code 128 (Modulo 103)';
+      return { isValid, validationError, detectedType: 'TPZ', normalizedValue };
+    }
+
+    // 4) CTL: Code 39 with Modulo 43, length 10, valid charset
+    if (length === 10 && allCode39Chars) {
+      isValid = validateCheckDigit(normalizedValue);
+      validationError = isValid ? null : 'Invalid CTL Code 39 (Modulo 43) check digit';
+      return { isValid, validationError, detectedType: 'CTL', normalizedValue };
+    }
+
+    // 5) No known pattern matched
+    isValid = false;
+    validationError = `Unrecognized barcode format (length ${length}, scanner type ${type || 'unknown'}). Expected CTL (Code 39, length 10), CTL luggage (Code 128, length 10), TPZ (Code 128, length 16) or MTC (Code 128, starts with 'TV', length 10).`;
+    return { isValid, validationError, detectedType: null, normalizedValue };
+  };
+
   const handleDetectedCode = async (type: string, value: string) => {
     if (isScanning) return; // Prevent multiple scans
     
@@ -129,85 +203,8 @@ export default function BarcodeScanner({
     setIsScanning(true);
     setLastDetectedValue(null); // Reset for next session
     
-    // Do not modify the scanned value; preserve exactly as read by camera
-    let normalized = value;
-    let isValid = true;
-    let validationError = null;
-
-    // Determine rendering and validation based on barcodeType
-    switch (barcodeType) {
-      case 'CTL': // Code 39 Modulo 43
-        // For CTL, check format first - if it matches Code 39 format (10 chars, valid chars, passes check digit),
-        // accept it even if scanner reports different type (some scanners misidentify)
-        if (normalized.length === 10) {
-          // Check if it's a valid Code 39 format (all characters in Code 39 set)
-          const code39Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
-          const allValidChars = normalized.split('').every(char => code39Chars.includes(char));
-          
-          if (allValidChars) {
-            // Validate check digit - if valid, accept regardless of scanner-reported type
-            isValid = validateCheckDigit(normalized);
-            validationError = isValid ? null : 'Invalid Barcode';
-          } else {
-            isValid = false;
-            validationError = `Invalid Code 39 characters. Expected Code 39 for CTL, but scanner reported ${type}`;
-          }
-        } else if (type !== 'code39' && type !== 'org.iso.code39') {
-          isValid = false;
-          validationError = `Expected Code 39 for CTL, but got ${type}. Barcode length: ${normalized.length}`;
-        } else {
-          isValid = validateCheckDigit(normalized);
-          validationError = isValid ? null : 'Invalid Code 39 (Modulo 43)';
-        }
-        break;
-      case 'TPZ': // Code 128 Length 16
-        if (type !== 'code128' && type !== 'org.iso.code128') {
-          isValid = false;
-          validationError = `Expected Code 128 for TPZ, but got ${type}`;
-        } else if (normalized.length !== 16) {
-          isValid = false;
-          validationError = 'Expected length 16 for TPZ Code 128';
-        } else {
-          isValid = validateMod103(normalized); // Assumed by scanner
-          validationError = isValid ? null : 'Invalid Code 128 (Modulo 103)';
-        }
-        break;
-      case 'MTC': // Code 128 Start TV Length 10
-        if (type !== 'code128' && type !== 'org.iso.code128') {
-          isValid = false;
-          validationError = `Expected Code 128 for MTC, but got ${type}`;
-        } else if (!normalized.startsWith('TV') || normalized.length !== 10) {
-          isValid = false;
-          validationError = 'Expected Code 128 starting with \'TV\' and length 10 for MTC';
-        } else {
-          isValid = validateMod103(normalized); // Assumed by scanner
-          validationError = isValid ? null : 'Invalid Code 128 (Modulo 103)';
-        }
-        break;
-      default: // Default to CTL (Code39 Modulo 43)
-        // For default/CTL, check format first - if it matches Code 39 format, accept it
-        if (normalized.length === 10) {
-          // Check if it's a valid Code 39 format (all characters in Code 39 set)
-          const code39Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
-          const allValidChars = normalized.split('').every(char => code39Chars.includes(char));
-          
-          if (allValidChars) {
-            // Validate check digit - if valid, accept regardless of scanner-reported type
-            isValid = validateCheckDigit(normalized);
-            validationError = isValid ? null : 'Invalid Code 39 (Modulo 43) check digit';
-          } else {
-            isValid = false;
-            validationError = `Invalid Code 39 characters. Expected Code 39, but scanner reported ${type}`;
-          }
-        } else if (type !== 'code39' && type !== 'org.iso.code39') {
-          isValid = false;
-          validationError = `Expected Code 39 by default, but got ${type}. Barcode length: ${normalized.length}`;
-        } else {
-          isValid = validateCheckDigit(normalized);
-          validationError = isValid ? null : 'Invalid Code 39 (Modulo 43)';
-        }
-        break;
-    }
+    // Automatically detect and validate barcode format based on content
+    const { isValid, validationError, normalizedValue } = detectAndValidateBarcode(type, value);
 
     if (!isValid) {
         // Show error feedback
@@ -222,32 +219,30 @@ export default function BarcodeScanner({
         return;
     }
 
-    // On success, show the highlighted barcode
-    setHighlightedBarcode(value);
+    // On success, show the highlighted barcode (use the normalized one)
+    setHighlightedBarcode(normalizedValue);
 
     // Play success beep and haptic feedback
     try {
-      // Use vibration for beep sound
-      Vibration.vibrate(200); // Short beep
+      Vibration.vibrate(200); 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.log('Could not play sound or haptic:', error);
     }
 
-    // If stayOnCamera is true, don't block scanning - allow continuous scans
     if (!stayOnCamera) {
       setScanned(true);
     }
 
-    // Call the callback immediately to close modal faster
-      onBarcodeScanned(normalized);
+    // Call the callback immediately with the extracted/normalized barcode
+    onBarcodeScanned(normalizedValue);
       
       // If stayOnCamera is true, reset scanning state after callback so user can scan again
       if (stayOnCamera) {
         setTimeout(() => {
           setIsScanning(false);
           setHighlightedBarcode(null);
-        }, 1000); // Show success for 1 second, then allow next scan
+      }, 1000); 
       }
   };
 

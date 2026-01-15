@@ -257,13 +257,13 @@ export default function TransporterDetailsScreen() {
                         <TouchableOpacity
                           className={`${
                             ln.physical_validation_status === 'validated' ||
-                            (note.state || '').toLowerCase() !== 'checked'
+                            !['checked', 'closed'].includes((note.state || '').toLowerCase())
                               ? 'bg-gray-400'
                               : 'bg-green-600'
                           } px-3 py-2 rounded-md`}
                           disabled={
                             ln.physical_validation_status === 'validated' ||
-                            (note.state || '').toLowerCase() !== 'checked'
+                            !['checked', 'closed'].includes((note.state || '').toLowerCase())
                           }
                           onPress={() => {
                             router.push(`/receiving/validate-td-line?id=${ln.id}`);
@@ -272,7 +272,7 @@ export default function TransporterDetailsScreen() {
                           <Text className="text-white text-xs font-bold">
                             {ln.physical_validation_status === 'validated'
                               ? 'Validated'
-                              : (note.state || '').toLowerCase() !== 'checked'
+                              : !['checked', 'closed'].includes((note.state || '').toLowerCase())
                               ? 'Validate (Book first)'
                               : 'Validate'}
                           </Text>

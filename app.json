@@ -2,7 +2,7 @@
   "expo": {
     "name": "Tobacco Logistics",
     "slug": "odoo-androidddd2",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/splash-icon.png",
     "scheme": "myapp",
@@ -24,6 +24,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.emilymarimo.tobaccologistics",
+      "versionCode": 2,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"

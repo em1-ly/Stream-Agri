@@ -1,0 +1,39 @@
+receiving_bucket:
+    data:
+        # --- Transporter and Grower Delivery Notes ---
+        - SELECT * FROM receiving_transporter_delivery_note WHERE create_date > '2025-09-25';
+        - SELECT * FROM receiving_grower_delivery_note WHERE (sales_sheet IS NULL OR sales_sheet != 'processed') AND create_date > '2025-09-25';
+        - SELECT id, state, barcode, scale_barcode, grower_number, delivery_note_number, group_number, lot_number, mass, curverid_classifier_number, curverid_buyer_number FROM receiving_bale;
+        - SELECT * FROM receiving_boka_transporter_delivery_note_line WHERE transporter_delivery_note_id IN (SELECT id FROM receiving_transporter_delivery_note WHERE create_date > '2025-09-25');
+        - SELECT * FROM receiving_curverid_row_management WHERE create_date > '2025-09-25';
+        - SELECT * FROM floor_maintenance_selling_point;
+        - SELECT * FROM floor_maintenance_sale_date_receiving;
+        - SELECT * FROM floor_maintenance_floor_sale;
+        - SELECT * FROM floor_maintenance_bale_location;
+        - SELECT * FROM receiving_hessian;
+        - SELECT * FROM grower_creditors_creditor WHERE creditor_number < '10382';
+        - SELECT * FROM buyers_buyer;
+        - SELECT * FROM buyers_grade;
+        - SELECT * FROM buyers_classifier;
+        - SELECT * FROM buyers_buying_staff;
+        - SELECT * FROM odoo_gms_grower;
+        - SELECT * FROM data_processing_salecode;
+        - SELECT * FROM floor_maintenance_timb_grade WHERE id < 14946;
+        - SELECT * FROM receiving_curverid_bale_sequencing_model WHERE scan_date::date = CURRENT_DATE;
+        - SELECT * FROM receiving_grower_bookings WHERE create_date > '2025-09-25';
+        - SELECT * FROM warehouse_warehouse;
+        - SELECT * FROM warehouse_location;
+        - SELECT id, name, active, create_date, write_date, mobile_app_id FROM warehouse_transport;
+        - SELECT * FROM warehouse_product;
+        - SELECT * FROM warehouse_bale_grade;
+        - SELECT * FROM warehouse_instruction;
+        - SELECT * FROM warehouse_instruction_line;
+        - SELECT * FROM warehouse_delivery_note;
+        - SELECT * FROM warehouse_delivery_bales;
+        - SELECT * FROM warehouse_shipped_bale;
+        - SELECT id, name, active, create_date, write_date, mobile_app_id FROM warehouse_pallet;
+        - SELECT id, reference, warehouse_source_id, warehouse_destination_id, product_id, shipping_instruction_id AS instruction_id, transport_id, truck_reg, truck_reg_number, driver_id, driver_national_id, driver_cellphone, dispatch_type, state, create_date, write_date, mobile_app_id, no_transportation_details FROM warehouse_dispatch_note;
+        - SELECT * FROM warehouse_dispatch_bale;
+        - SELECT * FROM floor_dispatch_note;
+        - SELECT * FROM floor_dispatch_bale;
+        - SELECT id, name, national_id, cellphone, active, create_date, write_date, mobile_app_id FROM warehouse_driver;

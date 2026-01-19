@@ -61,26 +61,9 @@ const WarehouseBaleScanScreen = () => {
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
   const massInputRef = useRef<TextInput>(null);
 
-  // Initial count of scanned bales in this location
-  useEffect(() => {
-    const fetchInitialCount = async () => {
-      if (params.warehouseId && params.locationId) {
-        try {
-          const countResult = await powersync.getOptional<{count: number}>(
-            `SELECT count(*) as count FROM warehouse_shipped_bale 
-             WHERE received = 1 AND warehouse_id = ? AND location_id = ?`,
-            [Number(params.warehouseId), Number(params.locationId)]
-          );
-          if (countResult) {
-            setScannedBales(countResult.count);
-          }
-        } catch (error) {
-          console.error('Error fetching initial scanned bales count:', error);
-        }
-      }
-    };
-    fetchInitialCount();
-  }, [params.warehouseId, params.locationId]);
+  // Start with 0 scanned bales - only count bales scanned in this session
+  // The initial count query was counting all historical received bales, which is not what we want
+  // We want to track only bales scanned during this specific scanning session
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
@@ -233,13 +216,16 @@ const WarehouseBaleScanScreen = () => {
         }
       }
 
-      // Refresh scanned count
-      const countResult = await powersync.get<{count: number}>(
-        `SELECT count(*) as count FROM warehouse_shipped_bale 
-         WHERE received = 1 AND warehouse_id = ? AND location_id = ?`,
-        [Number(params.warehouseId), Number(params.locationId)]
-      );
-      setScannedBales(countResult.count);
+      // Increment scanned count for this session only
+      // We track bales scanned in this session, not all historical received bales
+      if (receivingMode === 'by_pallet') {
+        // For pallet mode, we need to count how many bales are on the pallet
+        // For now, increment by 1 (representing the pallet received)
+        setScannedBales(prev => prev + 1);
+      } else {
+        // For by_bale mode, increment by 1 for each bale scanned
+        setScannedBales(prev => prev + 1);
+      }
 
       setMessage(`✅ ${receivingMode === 'by_pallet' ? 'Pallet' : 'Product'} '${effectiveBarcode}' received successfully.`);
       setMessageType('success');

@@ -379,12 +379,78 @@ export class Connector implements PowerSyncBackendConnector {
             if ('state' in createData) {
               delete createData['state'];
             }
-            // The Odoo wizard now uses 'driver_id' instead of 'driver_name'.
-            // Also remove related fields to avoid conflicts during creation.
-            for (const field of ['driver_name', 'driver_national_id', 'driver_cellphone']) {
-              if (field in createData) {
-                delete createData[field];
+            
+            // Handle driver fields - only include driver_name, driver_national_id, driver_cellphone for new drivers (UUID)
+            // For existing drivers (integer ID), only send driver_id
+            const driverId = createData['driver_id'];
+            if (driverId && typeof driverId === 'string' && !/^\d+$/.test(driverId)) {
+              // driver_id is a UUID (new driver), keep driver fields and set driver_id to null
+              // Odoo will create the driver using driver_name, driver_national_id, driver_cellphone
+              createData['driver_id'] = null;
+              // Keep driver_name, driver_national_id, driver_cellphone for new driver creation
+            } else if (driverId && typeof driverId === 'string' && /^\d+$/.test(driverId)) {
+              // Convert string number to integer and remove driver detail fields
+              createData['driver_id'] = parseInt(driverId, 10);
+              // Remove driver detail fields for existing drivers - wizard only accepts driver_id
+              if ('driver_name' in createData) {
+                delete createData['driver_name'];
               }
+              if ('driver_national_id' in createData) {
+                delete createData['driver_national_id'];
+              }
+              if ('driver_cellphone' in createData) {
+                delete createData['driver_cellphone'];
+              }
+            } else if (driverId && typeof driverId === 'number') {
+              // Already a number (existing driver), remove driver detail fields
+              if ('driver_name' in createData) {
+                delete createData['driver_name'];
+              }
+              if ('driver_national_id' in createData) {
+                delete createData['driver_national_id'];
+              }
+              if ('driver_cellphone' in createData) {
+                delete createData['driver_cellphone'];
+              }
+            } else if (!driverId) {
+              // No driver_id, remove driver detail fields
+              if ('driver_name' in createData) {
+                delete createData['driver_name'];
+              }
+              if ('driver_national_id' in createData) {
+                delete createData['driver_national_id'];
+              }
+              if ('driver_cellphone' in createData) {
+                delete createData['driver_cellphone'];
+              }
+            }
+            
+            // Handle transport_name for new transporters (when transport_id is a UUID)
+            // If transport_id is a UUID (not a number), we need to send transport_name
+            // and set transport_id to null so Odoo can create the new transport
+            const transportId = createData['transport_id'];
+            if (transportId && typeof transportId === 'string' && !/^\d+$/.test(transportId)) {
+              // transport_id is a UUID (new transporter), need to get transport name
+              try {
+                const transport = await database.get<any>(
+                  'SELECT name FROM warehouse_transport WHERE id = ? LIMIT 1',
+                  [transportId]
+                );
+                if (transport?.name) {
+                  createData['transport_name'] = transport.name;
+                  // Set transport_id to null for new transporters - Odoo will create it using transport_name
+                  createData['transport_id'] = null;
+                }
+              } catch (e) {
+                console.warn('⚠️ Could not fetch transport name for UUID:', transportId, e);
+                // If we can't find the transport, set transport_id to null
+                createData['transport_id'] = null;
+              }
+            } else if (transportId && typeof transportId === 'string' && /^\d+$/.test(transportId)) {
+              // Convert string number to integer
+              createData['transport_id'] = parseInt(transportId, 10);
+            } else if (transportId && typeof transportId === 'number') {
+              // Already a number, keep as is
             }
           } else if (originalTableName === 'warehouse_dispatch_note') {
             createType = 'warehouse_dispatch_create_note';
@@ -627,6 +693,17 @@ export class Connector implements PowerSyncBackendConnector {
             // Ensure the client-generated UUID is always sent as 'id' for model matching
             if (!createData['id']) {
               createData['id'] = id;
+            }
+          }
+
+          // Always include mobile user info for all create operations
+          // Exception: floor_dispatch_create_note wizard doesn't accept mobile_user_id/mobile_user_name
+          if (originalTableName !== 'floor_dispatch_note') {
+            if (mobileUserId) {
+              createData['mobile_user_id'] = Number(mobileUserId);
+            }
+            if (mobileUserName) {
+              createData['mobile_user_name'] = mobileUserName;
             }
           }
 
@@ -909,7 +986,9 @@ export class Connector implements PowerSyncBackendConnector {
                     data: {
                       warehouse_id: Number(warehouseId),
                       location_id: Number(locationId),
-                      barcode: baleRecord.barcode
+                      barcode: baleRecord.barcode,
+                      ...(mobileUserId && { mobile_user_id: Number(mobileUserId) }),
+                      ...(mobileUserName && { mobile_user_name: mobileUserName })
                     }
                   }
                 }
@@ -980,7 +1059,9 @@ export class Connector implements PowerSyncBackendConnector {
                   params: {
                     type: 'warehouse_depalletize_scan_bale',
                     data: {
-                      barcode: baleRecord.barcode
+                      barcode: baleRecord.barcode,
+                      ...(mobileUserId && { mobile_user_id: Number(mobileUserId) }),
+                      ...(mobileUserName && { mobile_user_name: mobileUserName })
                     }
                   }
                 }
@@ -1067,7 +1148,9 @@ export class Connector implements PowerSyncBackendConnector {
                     type: 'warehouse_bale_reticket',
                     data: {
                       logistics_barcode: logisticsBarcode,
-                      new_barcode: newBarcode
+                      new_barcode: newBarcode,
+                      ...(mobileUserId && { mobile_user_id: Number(mobileUserId) }),
+                      ...(mobileUserName && { mobile_user_name: mobileUserName })
                     }
                   }
                 }
@@ -1497,7 +1580,9 @@ export class Connector implements PowerSyncBackendConnector {
                     data: {
                       warehouse_id: Number(warehouseId),
                       location_id: Number(locationId),
-                      pallet_barcode: palletRecord.barcode
+                      pallet_barcode: palletRecord.barcode,
+                      ...(mobileUserId && { mobile_user_id: Number(mobileUserId) }),
+                      ...(mobileUserName && { mobile_user_name: mobileUserName })
                     }
                   }
                 }
@@ -2153,7 +2238,9 @@ export class Connector implements PowerSyncBackendConnector {
                       pallet_id: palletId,
                       warehouse_id: Number(warehouseIdVal),
                       location_id: Number(locationIdVal),
-                      ...(receivedMassVal !== null ? { received_mass: receivedMassVal } : {})
+                      ...(receivedMassVal !== null ? { received_mass: receivedMassVal } : {}),
+                      ...(mobileUserId && { mobile_user_id: Number(mobileUserId) }),
+                      ...(mobileUserName && { mobile_user_name: mobileUserName })
                     }
                   }
                 }
@@ -2191,6 +2278,14 @@ export class Connector implements PowerSyncBackendConnector {
               // Do NOT throw here – this lets the transaction complete and drops the op
               continue; // Skip the regular PATCH operation
             }
+          }
+
+          // Always include mobile user info for all update operations
+          if (mobileUserId) {
+            newRecordDataToSend['mobile_user_id'] = Number(mobileUserId);
+          }
+          if (mobileUserName) {
+            newRecordDataToSend['mobile_user_name'] = mobileUserName;
           }
 
           // Filter out columns that should not be synced to server

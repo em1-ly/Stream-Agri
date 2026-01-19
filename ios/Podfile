@@ -4,19 +4,12 @@ require File.join(File.dirname(`node --print "require.resolve('react-native/pack
 require 'json'
 podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
 
-def ccache_enabled?(podfile_properties)
-  # Environment variable takes precedence
-  return ENV['USE_CCACHE'] == '1' if ENV['USE_CCACHE']
-  
-  # Fall back to Podfile properties
-  podfile_properties['apple.ccacheEnabled'] == 'true'
-end
+ENV['RCT_NEW_ARCH_ENABLED'] = podfile_properties['newArchEnabled'] == 'true' ? '1' : '0'
+ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
 
-ENV['RCT_NEW_ARCH_ENABLED'] ||= '0' if podfile_properties['newArchEnabled'] == 'false'
-ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
-ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
 platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
+install! 'cocoapods',
+  :deterministic_uuids => false
 
 prepare_react_native_project!
 
@@ -27,8 +20,10 @@ target 'TobaccoLogistics' do
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else
     config_command = [
-      'npx',
-      'expo-modules-autolinking',
+      'node',
+      '--no-warnings',
+      '--eval',
+      'require(require.resolve(\'expo-modules-autolinking\', { paths: [require.resolve(\'expo/package.json\')] }))(process.argv.slice(1))',
       'react-native-config',
       '--json',
       '--platform',
@@ -54,7 +49,97 @@ target 'TobaccoLogistics' do
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
-      :ccache_enabled => ccache_enabled?(podfile_properties),
+      :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
     )
+
+    # Exclude expo-dev-menu from Release builds (App Store distribution)
+    # For production builds, we need to completely skip building expo-dev-menu
+    installer.pods_project.targets.each do |target|
+      if target.name == 'expo-dev-menu' || target.name.start_with?('expo-dev-menu') || target.name == 'expo-dev-client'
+        target.build_configurations.each do |config|
+          if config.name == 'Release'
+            # Completely disable building this target for Release builds
+            # This prevents the Swift header generation error
+            config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= []
+            config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'EXPO_DEV_MENU_DISABLED=1'
+            # Skip installation
+            config.build_settings['SKIP_INSTALL'] = 'YES'
+            # Exclude from all architectures
+            config.build_settings['EXCLUDED_ARCHS'] = 'arm64 armv7 i386 x86_64'
+            config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+            # Disable code signing
+            config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          end
+        end
+      end
+    end
+    
+    # Also remove expo-dev-menu from the main app target's dependencies for Release
+    installer.pods_project.targets.each do |target|
+      if target.name == 'TobaccoLogistics' || target.respond_to?(:name) && target.name.include?('TobaccoLogistics')
+        target.build_configurations.each do |config|
+          if config.name == 'Release'
+            # Remove expo-dev-menu from linker flags
+            if config.build_settings['OTHER_LDFLAGS']
+              config.build_settings['OTHER_LDFLAGS'] = config.build_settings['OTHER_LDFLAGS'].reject do |flag|
+                flag.to_s.include?('expo-dev-menu') || flag.to_s.include?('expo-dev-client')
+              end
+            end
+          end
+        end
+      end
+    end
+
+    # Set minimum deployment target for all pods
+    deployment_target = podfile_properties['ios.deploymentTarget'] || '15.1'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < deployment_target.to_f
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = deployment_target
+        end
+      end
+    end
+
+    # This is necessary for Xcode 14, because it signs resource bundles by default
+    # when building for devices.
+    installer.target_installation_results.pod_target_installation_results
+      .each do |pod_name, target_installation_result|
+      target_installation_result.resource_bundle_targets.each do |resource_bundle_target|
+        resource_bundle_target.build_configurations.each do |config|
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        end
+      end
+    end
+
+    # Fix module map issues for Xcode 26.2 compatibility
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Ensure modules are enabled
+        config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+        
+        # Fix for Xcode 26.2 - ensure proper module map generation
+        config.build_settings['CLANG_MODULES_AUTOLINK'] = 'YES'
+        config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        
+        # Fix Swift module search paths
+        config.build_settings['SWIFT_INCLUDE_PATHS'] ||= ['$(inherited)']
+        
+        # Ensure proper SDK path
+        if config.build_settings['SDKROOT'].nil? || config.build_settings['SDKROOT'].empty?
+          config.build_settings['SDKROOT'] = 'iphoneos'
+        end
+        
+        # Fix for system modules not being found in Xcode 26.2
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
+        config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+      end
+    end
+
+    # Fix main project build settings
+    installer.pods_project.build_configurations.each do |config|
+      config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+      config.build_settings['CLANG_MODULES_AUTOLINK'] = 'YES'
+    end
   end
 end

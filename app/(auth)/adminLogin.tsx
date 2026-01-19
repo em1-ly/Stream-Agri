@@ -7,6 +7,7 @@ import { Eye, EyeOff, Mail, Lock, Settings, Database } from "lucide-react-native
 import { useSession } from "@/authContext"
 import { useFocusEffect, useRouter } from "expo-router"
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system';
 import axios from "axios";
 import { powersync } from "@/powersync/system";
 
@@ -126,6 +127,126 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
     } finally {
       setIsLoggingIn(false)
     }
+  }
+
+  const handleClearDataAndResync = async () => {
+    Alert.alert(
+      'Clear Data & Resync',
+      'This will clear all local data and force a fresh sync on next login. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear & Resync',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsLoggingIn(true);
+              setLoginError(null);
+              
+              // Disconnect PowerSync
+              await powersync.disconnect();
+              
+              // Clear SecureStore data
+              await SecureStore.deleteItemAsync('session');
+              await SecureStore.deleteItemAsync('odoo_employee_id');
+              await SecureStore.deleteItemAsync('odoo_employee_name');
+              await SecureStore.deleteItemAsync('odoo_custom_session_id');
+              await SecureStore.deleteItemAsync('employee_jwt');
+              
+              // Clear PowerSync database tables (especially hr_employee to force resync)
+              await powersync.execute('DELETE FROM hr_employee');
+              
+              Alert.alert(
+                'Success',
+                'Data cleared successfully. You can now login to resync.',
+                [{ text: 'OK' }]
+              );
+              
+              setIsLoggingIn(false);
+            } catch (error: any) {
+              console.error('Error clearing data:', error);
+              Alert.alert('Error', `Failed to clear data: ${error.message || 'Unknown error'}`);
+              setIsLoggingIn(false);
+            }
+          }
+        }
+      ]
+    );
+  }
+
+  const handleClearCache = async () => {
+    Alert.alert(
+      'Clear App Cache',
+      'This will clear all cached images and temporary files. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Cache',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsLoggingIn(true);
+              setLoginError(null);
+              
+              let clearedItems = 0;
+              
+              // Clear FileSystem cache directory (includes expo-image cache)
+              try {
+                const cacheDir = FileSystem.cacheDirectory;
+                if (cacheDir) {
+                  const files = await FileSystem.readDirectoryAsync(cacheDir);
+                  for (const file of files) {
+                    try {
+                      await FileSystem.deleteAsync(`${cacheDir}${file}`, { idempotent: true });
+                      clearedItems++;
+                    } catch (error) {
+                      console.error(`Error deleting cache file ${file}:`, error);
+                    }
+                  }
+                  console.log(`FileSystem cache cleared: ${clearedItems} items`);
+                }
+              } catch (error) {
+                console.error('Error clearing FileSystem cache:', error);
+              }
+              
+              // Clear document directory temporary files
+              try {
+                const docDir = FileSystem.documentDirectory;
+                if (docDir) {
+                  // Only clear temp files, not user data
+                  const files = await FileSystem.readDirectoryAsync(docDir);
+                  for (const file of files) {
+                    // Skip important files like databases
+                    if (!file.includes('.db') && !file.includes('SQLite')) {
+                      try {
+                        await FileSystem.deleteAsync(`${docDir}${file}`, { idempotent: true });
+                        clearedItems++;
+                      } catch (error) {
+                        // Ignore errors for protected files
+                      }
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('Error clearing document directory temp files:', error);
+              }
+              
+              Alert.alert(
+                'Success',
+                `App cache cleared successfully. ${clearedItems} items removed.`,
+                [{ text: 'OK' }]
+              );
+              
+              setIsLoggingIn(false);
+            } catch (error: any) {
+              console.error('Error clearing cache:', error);
+              Alert.alert('Error', `Failed to clear cache: ${error.message || 'Unknown error'}`);
+              setIsLoggingIn(false);
+            }
+          }
+        }
+      ]
+    );
   }
 
 
@@ -266,7 +387,26 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
               </TouchableOpacity>
             </View>
           </View>
-        
+
+          <TouchableOpacity 
+            className="mt-4 rounded-md border-2 border-red-500 p-2" 
+            onPress={handleClearDataAndResync}
+            disabled={isLoggingIn}
+          >
+            <Text className="text-red-500 text-center">
+              Clear Data & Resync
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            className="mt-4 rounded-md border-2 border-orange-500 p-2" 
+            onPress={handleClearCache}
+            disabled={isLoggingIn}
+          >
+            <Text className="text-orange-500 text-center">
+              Clear App Cache
+            </Text>
+          </TouchableOpacity>
         
         {/* <TouchableOpacity 
           className="mt-4 rounded-md border-2 border-[#65435C] p-2" 

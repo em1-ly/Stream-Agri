@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Camera, ChevronLeft } from 'lucide-react-native';
 import { powersync, setupPowerSync } from '@/powersync/system';
@@ -69,6 +68,8 @@ export default function AddNewBaleScreen() {
   const [isBooked, setIsBooked] = useState(false); // Track booking status from grower_bookings model
   const lastProcessedBaleBarcode = useRef<string>('');
   const [hessians, setHessians] = useState<{ id: number; name: string; hessian_id: string }[]>([]);
+  const [hessianSearchText, setHessianSearchText] = useState('');
+  const [selectedHessian, setSelectedHessian] = useState<{ id: number; name: string; hessian_id: string } | null>(null);
   const [editingBaleId, setEditingBaleId] = useState<string | null>(null); // Track if we're editing an existing bale
   const [syncStatus, setSyncStatus] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -298,10 +299,35 @@ export default function AddNewBaleScreen() {
     loadHessians();
   }, []);
 
+  // Handlers for Hessian
+  const handleHessianSelect = (hessian: { id: number; name: string; hessian_id: string }) => {
+    setSelectedHessian(hessian);
+    setSessionHessianId(hessian.id);
+    setSessionHessianName(hessian.name);
+    setHessianSearchText(`${hessian.name} (${hessian.hessian_id})`);
+  };
+
+  const handleHessianChange = (text: string) => {
+    setHessianSearchText(text);
+    if (selectedHessian && text !== `${selectedHessian.name} (${selectedHessian.hessian_id})`) {
+      setSelectedHessian(null);
+      setSessionHessianId(null);
+      setSessionHessianName('');
+    }
+  };
+
   // Initialize session state from params once (and keep if params change)
   useEffect(() => {
     if (hessianId !== undefined && hessianId !== null) {
       setSessionHessianId(hessianId);
+      // Find and set the selected hessian if hessians are loaded
+      if (hessians.length > 0) {
+        const found = hessians.find((h) => h.id === Number(hessianId));
+        if (found) {
+          setSelectedHessian(found);
+          setHessianSearchText(`${found.name} (${found.hessian_id})`);
+        }
+      }
     }
     if (locationId !== undefined && locationId !== null) {
       setSessionLocationId(locationId);
@@ -312,7 +338,7 @@ export default function AddNewBaleScreen() {
     if (typeof locationName === 'string') {
       setSessionLocationName(locationName);
     }
-  }, [hessianId, locationId]);
+  }, [hessianId, locationId, hessians]);
 
   // Check if bale exists when barcode is set (from scan or manual entry)
   useEffect(() => {
@@ -1052,23 +1078,57 @@ export default function AddNewBaleScreen() {
           editable={scannedCount < expectedCount}
         />
 
-        {/* Hessian dropdown */}
-        <View className="border border-gray-300 rounded-lg px-2 py-1 mb-4">
-          <Picker
-            selectedValue={sessionHessianId ?? ''}
-            onValueChange={(val) => {
-              setSessionHessianId(val);
-              const found = hessians.find((h) => h.id === val);
-              setSessionHessianName(found?.name || '');
-            }}
-            enabled={scannedCount < expectedCount}
-            Style={{ height: 50, color: sessionHessianId ? '#111827' : '#4B5563' }}
-          >
-            <Picker.Item label={sessionHessianName || 'Select Hessian'} value={sessionHessianId ?? ''} color="#9CA3AF" />
-            {hessians.map((h) => (
-              <Picker.Item key={h.id} label={`${h.name} (${h.hessian_id})`} value={h.id} color="#374151" />
-            ))}
-          </Picker>
+        {/* Hessian type-and-search */}
+        <View className="mb-4">
+          <Text className="text-gray-700 mb-1 font-semibold">Hessian</Text>
+          <TextInput
+            className={`bg-gray-100 border border-gray-300 rounded-lg p-3 text-base ${scannedCount >= expectedCount ? 'bg-gray-200' : ''}`}
+            placeholderTextColor="#9CA3AF"
+            style={{ color: '#111827' }}
+            placeholder="Type to search hessian..."
+            value={hessianSearchText}
+            onChangeText={handleHessianChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={scannedCount < expectedCount}
+          />
+          {scannedCount < expectedCount && hessianSearchText && typeof hessianSearchText === 'string' && hessianSearchText.trim().length > 0 && !selectedHessian && (
+            <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {hessians
+                  .filter((h) =>
+                    `${h.name} (${h.hessian_id})`
+                      .toLowerCase()
+                      .includes(hessianSearchText.toLowerCase()) ||
+                    h.name.toLowerCase().includes(hessianSearchText.toLowerCase()) ||
+                    h.hessian_id.toLowerCase().includes(hessianSearchText.toLowerCase())
+                  )
+                  .slice(0, 25)
+                  .map((h) => (
+                    <TouchableOpacity
+                      key={h.id}
+                      className="p-3 border-b border-gray-100 bg-white"
+                      onPress={() => handleHessianSelect(h)}
+                    >
+                      <Text className="text-base text-gray-900">
+                        {h.name} ({h.hessian_id})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                {hessians.filter((h) =>
+                  `${h.name} (${h.hessian_id})`
+                    .toLowerCase()
+                    .includes(hessianSearchText.toLowerCase()) ||
+                  h.name.toLowerCase().includes(hessianSearchText.toLowerCase()) ||
+                  h.hessian_id.toLowerCase().includes(hessianSearchText.toLowerCase())
+                ).length === 0 && (
+                  <Text className="text-gray-500 text-center py-3">
+                    No hessians found.
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
        

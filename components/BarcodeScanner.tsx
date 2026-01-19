@@ -449,6 +449,19 @@ export default function BarcodeScanner({
           )}
         </View>
       </CameraView>
+
+      {/* Finish Scan button - shown when stayOnCamera is true, positioned outside CameraView for proper touch handling */}
+      {stayOnCamera && (
+        <View className="absolute bottom-10 left-0 right-0 items-center px-5 z-50" pointerEvents="box-none">
+          <TouchableOpacity
+            className="bg-green-600 rounded-lg py-4 px-8 w-full"
+            onPress={onClose}
+            activeOpacity={0.8}
+          >
+            <Text className="text-white font-bold text-lg text-center">Finish Scan</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }

@@ -29,7 +29,6 @@ const SafeStorage = {
   }
 };
 import { Barcode, Search, CheckCircle, XCircle, ChevronLeft } from 'lucide-react-native';
-import { Picker } from '@react-native-picker/picker';
 import { powersync } from '@/powersync/system';
 import { SellingPointRecord, FloorSaleRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
@@ -55,29 +54,6 @@ const FormInput = ({ label, value, onChangeText, placeholder }: {
       />
     </View>
 );
-  
-const FormPicker = ({ label, selectedValue, onValueChange, items }: {
-  label: string;
-  selectedValue: string | null;
-  onValueChange: (value: string | null) => void;
-  items: { id: any; name: string | null }[];
-}) => (
-      <View className="mb-4">
-          <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-          <View className="bg-gray-200 border border-gray-300 rounded-lg">
-              <Picker 
-                selectedValue={selectedValue} 
-                onValueChange={onValueChange}
-                style={{ height: 50, color: selectedValue ? '#111827' : '#4B5563' }}
-              >
-                  <Picker.Item label={`-- Select ${label} --`} value={null} color="#9CA3AF" />
-                  {items.map((item) => (
-                      <Picker.Item key={String(item.id)} label={item.name || ''} value={String(item.id)} color="#374151" />
-                  ))}
-              </Picker>
-          </View>
-      </View>
-);
 
 const SequencingScannerScreen = () => {
   const router = useRouter();
@@ -95,6 +71,10 @@ const SequencingScannerScreen = () => {
   // --- Form State ---
   const [selectedSellingPoint, setSelectedSellingPoint] = useState<string | null>(null);
   const [selectedFloorSale, setSelectedFloorSale] = useState<string | null>(null);
+  const [sellingPointSearchText, setSellingPointSearchText] = useState('');
+  const [floorSaleSearchText, setFloorSaleSearchText] = useState('');
+  const [selectedSellingPointRecord, setSelectedSellingPointRecord] = useState<SellingPointRecord | null>(null);
+  const [selectedFloorSaleRecord, setSelectedFloorSaleRecord] = useState<FloorSaleRecord | null>(null);
   const [row, setRow] = useState('');
   const [rowMax, setRowMax] = useState<string>('');
   const [pendingRowBales, setPendingRowBales] = useState<string[]>([]);
@@ -139,8 +119,24 @@ const SequencingScannerScreen = () => {
             const raw = await SafeStorage.getItem(STORAGE_KEY);
             if (raw) {
               const saved = JSON.parse(raw);
-              if (saved.selectedSellingPoint) setSelectedSellingPoint(saved.selectedSellingPoint);
-              if (saved.selectedFloorSale) setSelectedFloorSale(saved.selectedFloorSale);
+              if (saved.selectedSellingPoint) {
+                setSelectedSellingPoint(saved.selectedSellingPoint);
+                // Find and set the selected selling point record
+                const foundSP = spResult.find(sp => String(sp.id) === saved.selectedSellingPoint);
+                if (foundSP) {
+                  setSelectedSellingPointRecord(foundSP);
+                  setSellingPointSearchText(foundSP.name || `Selling Point ${foundSP.id}`);
+                }
+              }
+              if (saved.selectedFloorSale) {
+                setSelectedFloorSale(saved.selectedFloorSale);
+                // Find and set the selected floor sale record
+                const foundFS = fsResult.find(fs => String(fs.id) === saved.selectedFloorSale);
+                if (foundFS) {
+                  setSelectedFloorSaleRecord(foundFS);
+                  setFloorSaleSearchText(foundFS.name || `Floor Sale ${foundFS.id}`);
+                }
+              }
               if (saved.row) setRow(saved.row);
               if (saved.rowMax) setRowMax(saved.rowMax);
               if (typeof saved.location === 'string') setLocation(saved.location);
@@ -195,6 +191,44 @@ const SequencingScannerScreen = () => {
         }
     }
   }, [selectedSellingPoint, allFloorSales, selectedFloorSale]);
+
+  // Handlers for Selling Point
+  const handleSellingPointSelect = (sp: SellingPointRecord) => {
+    setSelectedSellingPointRecord(sp);
+    setSelectedSellingPoint(String(sp.id));
+    setSellingPointSearchText(sp.name || `Selling Point ${sp.id}`);
+    // Clear floor sale when selling point changes
+    setSelectedFloorSale(null);
+    setSelectedFloorSaleRecord(null);
+    setFloorSaleSearchText('');
+  };
+
+  const handleSellingPointChange = (text: string) => {
+    setSellingPointSearchText(text);
+    if (selectedSellingPointRecord && text !== (selectedSellingPointRecord.name || `Selling Point ${selectedSellingPointRecord.id}`)) {
+      setSelectedSellingPointRecord(null);
+      setSelectedSellingPoint(null);
+      // Clear floor sale when selling point is cleared
+      setSelectedFloorSale(null);
+      setSelectedFloorSaleRecord(null);
+      setFloorSaleSearchText('');
+    }
+  };
+
+  // Handlers for Floor Sale
+  const handleFloorSaleSelect = (fs: FloorSaleRecord) => {
+    setSelectedFloorSaleRecord(fs);
+    setSelectedFloorSale(String(fs.id));
+    setFloorSaleSearchText(fs.name || `Floor Sale ${fs.id}`);
+  };
+
+  const handleFloorSaleChange = (text: string) => {
+    setFloorSaleSearchText(text);
+    if (selectedFloorSaleRecord && text !== (selectedFloorSaleRecord.name || `Floor Sale ${selectedFloorSaleRecord.id}`)) {
+      setSelectedFloorSaleRecord(null);
+      setSelectedFloorSale(null);
+    }
+  };
 
   const handleProcessScannedBale = async () => {
     if (!selectedSellingPoint || !selectedFloorSale || !row) {
@@ -350,19 +384,102 @@ const SequencingScannerScreen = () => {
                 <Text className="text-white text-sm">Clear</Text>
               </TouchableOpacity>
             </View>
-            <FormPicker 
-              label="Selling Point"
-              selectedValue={selectedSellingPoint}
-              onValueChange={(itemValue: string | null) => setSelectedSellingPoint(itemValue)}
-              
-              items={sellingPoints}
-            />
-            <FormPicker 
-              label="Floor Sale"
-              selectedValue={selectedFloorSale}
-              onValueChange={(itemValue: string | null) => setSelectedFloorSale(itemValue)}
-              items={filteredFloorSales}
-            />
+            {/* Selling Point type-and-search */}
+            <View className="mb-4">
+              <Text className="text-gray-700 mb-1 font-semibold">Selling Point</Text>
+              <TextInput
+                className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                placeholderTextColor="#9CA3AF"
+                style={{ color: '#111827' }}
+                placeholder="Type to search selling point..."
+                value={sellingPointSearchText}
+                onChangeText={handleSellingPointChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {sellingPointSearchText && typeof sellingPointSearchText === 'string' && sellingPointSearchText.trim().length > 0 && !selectedSellingPointRecord && (
+                <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {sellingPoints
+                      .filter((sp) =>
+                        (sp.name || `Selling Point ${sp.id}`)
+                          .toLowerCase()
+                          .includes(sellingPointSearchText.toLowerCase())
+                      )
+                      .slice(0, 25)
+                      .map((sp) => (
+                        <TouchableOpacity
+                          key={sp.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => handleSellingPointSelect(sp)}
+                        >
+                          <Text className="text-base text-gray-900">
+                            {sp.name || `Selling Point ${sp.id}`}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    {sellingPoints.filter((sp) =>
+                      (sp.name || `Selling Point ${sp.id}`)
+                        .toLowerCase()
+                        .includes(sellingPointSearchText.toLowerCase())
+                    ).length === 0 && (
+                      <Text className="text-gray-500 text-center py-3">
+                        No selling points found.
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+
+            {/* Floor Sale type-and-search */}
+            <View className="mb-4">
+              <Text className="text-gray-700 mb-1 font-semibold">Floor Sale</Text>
+              <TextInput
+                className={`bg-gray-100 border border-gray-300 rounded-lg p-3 text-base ${!selectedSellingPoint ? 'bg-gray-200' : ''}`}
+                placeholderTextColor="#9CA3AF"
+                style={{ color: '#111827' }}
+                placeholder={selectedSellingPoint ? "Type to search floor sale..." : "Select a selling point first..."}
+                value={floorSaleSearchText}
+                onChangeText={handleFloorSaleChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!!selectedSellingPoint}
+              />
+              {selectedSellingPoint && floorSaleSearchText && typeof floorSaleSearchText === 'string' && floorSaleSearchText.trim().length > 0 && !selectedFloorSaleRecord && (
+                <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {filteredFloorSales
+                      .filter((fs) =>
+                        (fs.name || `Floor Sale ${fs.id}`)
+                          .toLowerCase()
+                          .includes(floorSaleSearchText.toLowerCase())
+                      )
+                      .slice(0, 25)
+                      .map((fs) => (
+                        <TouchableOpacity
+                          key={fs.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => handleFloorSaleSelect(fs)}
+                        >
+                          <Text className="text-base text-gray-900">
+                            {fs.name || `Floor Sale ${fs.id}`}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    {filteredFloorSales.filter((fs) =>
+                      (fs.name || `Floor Sale ${fs.id}`)
+                        .toLowerCase()
+                        .includes(floorSaleSearchText.toLowerCase())
+                    ).length === 0 && (
+                      <Text className="text-gray-500 text-center py-3">
+                        No floor sales found.
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Scanning Interface */}

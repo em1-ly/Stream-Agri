@@ -12,16 +12,36 @@
       },
       "channel": "development"
     },
+    "simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "channel": "simulator"
+    },
     "preview": {
       "distribution": "internal",
       "channel": "preview"
     },
+    "ad-hoc": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "channel": "preview"
+    },
     "production": {
       "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release"
+      },
       "android": {
         "buildType": "apk"
       },
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_NO_DEV_CLIENT": "1"
+      }
     }
   },
   "submit": {

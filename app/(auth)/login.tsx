@@ -7,6 +7,7 @@ import { Eye, EyeOff, Mail, Lock, ArrowRight, Github, Twitter, Settings, Databas
 import { useSession } from "../../authContext"
 import { useFocusEffect, useRouter } from "expo-router"
 import * as SecureStore from 'expo-secure-store';
+import * as Haptics from 'expo-haptics';
 import { exportDatabase } from "../../export-db"
 // import { useSQLiteContext } from "expo-sqlite"
 import { useNetwork } from "@/NetworkContext"
@@ -53,6 +54,14 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
     // const users = await appDatabase.getAllAsync('SELECT * FROM users')
     console.log("users")
   }
+
+  const handleServerConfigPress = useCallback(() => {
+    // Haptic feedback for better UX
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    // Navigate with smooth transition
+    router.push('/(auth)/adminLogin');
+  }, [router]);
+
 
   const { isConnected } = useNetwork()
 
@@ -482,8 +491,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
           </>
         
         <TouchableOpacity 
-          className="mt-4 rounded-md border-2 border-[#65435C] p-2" 
-          onPress={() => router.push('/(auth)/adminLogin')}
+          className="mt-4 rounded-md border-2 border-[#65435C] p-2 active:opacity-70" 
+          onPress={handleServerConfigPress}
+          activeOpacity={0.7}
         >
           <Text className="text-[#1AD3BB] text-center">
             Server Configuration

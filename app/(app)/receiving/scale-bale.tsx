@@ -8,12 +8,11 @@ import * as SecureStore from 'expo-secure-store';
 import { powersync } from '@/powersync/system';
 import { BaleRecord, GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import { SuccessToast } from '@/components/SuccessToast';
-import { Picker } from '@react-native-picker/picker';
 import { useNetwork } from '@/NetworkContext';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { useSession } from '@/authContext';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Camera } from 'lucide-react-native';
 
 // Safe storage wrapper: same as in sequencing-scanner
 let RNAsync: any = null;
@@ -56,29 +55,6 @@ const FormInput = ({ label, value, onChangeText, placeholder, editable = true }:
   </View>
 );
 
-const FormPicker = ({ label, value, onValueChange, items, placeholder }: { 
-  label: string; 
-  value: string; 
-  onValueChange: (value: string) => void; 
-  items: Array<{label: string; value: string}>; 
-  placeholder: string;
-}) => (
-  <View className="mb-4">
-    <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-    <View className="bg-gray-100 border border-gray-300 rounded-lg">
-      <Picker
-        selectedValue={value}
-        onValueChange={onValueChange}
-        style={{ height: 50, color: value ? '#111827' : '#4B5563' }}
-      >
-        <Picker.Item label={placeholder} value="" color="#9CA3AF" />
-        {items.map((item) => (
-          <Picker.Item key={item.value} label={item.label} value={item.value} color="#374151" />
-        ))}
-      </Picker>
-    </View>
-  </View>
-);
 
 const STORAGE_KEY = 'receiving:sequencingFormState';
 
@@ -90,7 +66,10 @@ const ScaleBaleScreen = () => {
   const navigation = useNavigation();
   
   // Original state variables
-  const [lay, setLay] = useState('1');
+  const [lay, setLay] = useState('');
+  const [laySearchText, setLaySearchText] = useState('');
+  const [selectedLay, setSelectedLay] = useState<{ label: string; value: string } | null>(null);
+  const [isLayFocused, setIsLayFocused] = useState(false);
   const [row, setRow] = useState('');
   const [rowMax, setRowMax] = useState<string>('');
   const [scaleBarcode, setScaleBarcode] = useState('');
@@ -158,6 +137,22 @@ const ScaleBaleScreen = () => {
     { label: 'Lay 6', value: '6' },
   ];
 
+  // Handlers for Lay
+  const handleLaySelect = (layOption: { label: string; value: string }) => {
+    setSelectedLay(layOption);
+    setLay(layOption.value);
+    setLaySearchText(layOption.label);
+  };
+
+  const handleLayChange = (text: string) => {
+    setLaySearchText(text);
+    // Clear selection if text doesn't match selected lay
+    if (selectedLay && text !== selectedLay.label) {
+      setSelectedLay(null);
+      setLay('');
+    }
+    // Don't auto-select - let user click to select
+  };
 
   // This watcher now directly counts the synced records.
   useEffect(() => {
@@ -1110,7 +1105,14 @@ const ScaleBaleScreen = () => {
       setRow(params.row as string);
     }
     if (params.lay) {
-      setLay(params.lay as string);
+      const layValue = params.lay as string;
+      setLay(layValue);
+      // Find and set the selected lay option
+      const foundLay = layOptions.find(opt => opt.value === layValue);
+      if (foundLay) {
+        setSelectedLay(foundLay);
+        setLaySearchText(foundLay.label);
+      }
     }
     if (params.selling_point_id) {
       setSellingPointId(params.selling_point_id as string);
@@ -1306,14 +1308,63 @@ const ScaleBaleScreen = () => {
             className="flex-1 bg-white rounded-2xl p-5 mt-2"
             keyboardShouldPersistTaps="handled"
           >
-        {/* Lay Selection */}
-        <FormPicker
-          label="Lay"
-          value={lay}
-          onValueChange={setLay}
-          items={layOptions}
-          placeholder="Select Lay"
-        />
+        {/* Lay type-and-search */}
+        <View className="mb-4">
+          <Text className="text-gray-700 mb-1 font-semibold">Lay</Text>
+          <TextInput
+            className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+            placeholderTextColor="#9CA3AF"
+            style={{ color: '#111827' }}
+            placeholder="Type to search lay (e.g. Lay 1, Lay 2)..."
+            value={laySearchText}
+            onChangeText={handleLayChange}
+            onFocus={() => setIsLayFocused(true)}
+            onBlur={() => {
+              // Delay blur to allow click on dropdown item
+              setTimeout(() => setIsLayFocused(false), 200);
+            }}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {isLayFocused && !selectedLay && (
+            <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {layOptions
+                  .filter((opt) => {
+                    if (!laySearchText || laySearchText.trim().length === 0) {
+                      return true; // Show all options when search is empty
+                    }
+                    return (
+                      opt.label.toLowerCase().includes(laySearchText.toLowerCase()) ||
+                      opt.value === laySearchText.trim()
+                    );
+                  })
+                  .map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      className="p-3 border-b border-gray-100 bg-white"
+                      onPress={() => {
+                        handleLaySelect(opt);
+                        setIsLayFocused(false);
+                      }}
+                    >
+                      <Text className="text-base text-gray-900">
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                {laySearchText && laySearchText.trim().length > 0 && layOptions.filter((opt) =>
+                  opt.label.toLowerCase().includes(laySearchText.toLowerCase()) ||
+                  opt.value === laySearchText.trim()
+                ).length === 0 && (
+                  <Text className="text-gray-500 text-center py-3">
+                    No lay options found.
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
         
         {/* Row Number */}
         <FormInput 
@@ -1324,30 +1375,30 @@ const ScaleBaleScreen = () => {
         />
         
         {/* Scale Barcode */}
-        <FormInput 
-          label="Scale Barcode" 
-          value={scaleBarcode} 
-          onChangeText={setScaleBarcode}
-          placeholder="Scan or enter bale barcode" 
-        />
-
-        {/* Action Buttons */}
-        <View className="mb-6 mt-4 flex-row gap-3">
-          {/* Scan Button - Opens camera and processes automatically */}
-          <TouchableOpacity
-            onPress={handleOpenScanner}
-            disabled={isProcessing}
-            className={`flex-1 p-4 rounded-lg items-center justify-center ${
-              isProcessing ? 'bg-gray-400' : 'bg-[#65435C]'
-            }`}
-          >
-            {isProcessing ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white font-bold text-lg">📷 Scan</Text>
-            )}
-          </TouchableOpacity>
+        <View className="mb-4">
+          <Text className="text-gray-700 mb-1 font-semibold">Scale Barcode</Text>
+          <View className="flex-row">
+            <TextInput
+              className="flex-1 bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholder="Scan or enter bale barcode"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              value={scaleBarcode}
+              onChangeText={setScaleBarcode}
+            />
+            <TouchableOpacity 
+              className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center" 
+              onPress={() => {
+                Keyboard.dismiss();
+                handleOpenScanner();
+              }}
+              disabled={isProcessing}
+            >
+              <Camera color="white" size={20} />
+            </TouchableOpacity>
+          </View>
         </View>
+
 
         {/* Result Message */}
         {resultMessage ? (

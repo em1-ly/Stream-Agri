@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Keyboard } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Search, Camera, ChevronLeft } from 'lucide-react-native';
 import 'react-native-get-random-values';
@@ -62,7 +61,8 @@ export default function AddBaleToGDNoteScreen() {
   const [location, setLocation] = useState('');
   const [locationId, setLocationId] = useState<string | number | null>(null);
   const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
-  const [showLocationPicker, setShowLocationPicker] = useState(false); // no longer used with dropdown
+  const [locationSearchText, setLocationSearchText] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState<{ id: number; name: string } | null>(null);
   const [isClosing, setIsClosing] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState(false);
@@ -229,6 +229,23 @@ export default function AddBaleToGDNoteScreen() {
     };
     loadLocations();
   }, []);
+
+  // Handlers for location
+  const handleLocationSelect = (loc: { id: number; name: string }) => {
+    setSelectedLocation(loc);
+    setLocationId(loc.id);
+    setLocation(loc.name);
+    setLocationSearchText(loc.name);
+  };
+
+  const handleLocationChange = (text: string) => {
+    setLocationSearchText(text);
+    if (selectedLocation && text !== selectedLocation.name) {
+      setSelectedLocation(null);
+      setLocationId(null);
+      setLocation('');
+    }
+  };
 
   // Refresh grower note data when screen comes into focus
   useFocusEffect(
@@ -771,22 +788,52 @@ export default function AddBaleToGDNoteScreen() {
         {growerNote && (
           <>
             <Text className="text-xl font-bold text-[#65435C] mb-1">Configure Session</Text>
-            {/* Location dropdown */}
-            <View className="border border-gray-300 rounded-lg px-2 py-1 mb-3">
-              <Picker
-                style={{ height: 50, color: locationId ? '#111827' : '#4B5563' }}
-                selectedValue={locationId ?? ''}
-                onValueChange={(val) => {
-                  setLocationId(val);
-                  const found = locations.find((l) => l.id === val);
-                  setLocation(found?.name || '');
-                }}
-              >
-                <Picker.Item label={location ? location : 'Select Location'} value={locationId ?? ''} color="#9CA3AF" />
-                {locations.map((loc) => (
-                  <Picker.Item key={loc.id} label={loc.name} value={loc.id} color="#374151" />
-                ))}
-              </Picker>
+            {/* Location type-and-search */}
+            <View className="mb-3">
+              <Text className="text-gray-700 mb-1 font-semibold">Location</Text>
+              <TextInput
+                className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                placeholderTextColor="#9CA3AF"
+                style={{ color: '#111827' }}
+                placeholder="Type to search location..."
+                value={locationSearchText}
+                onChangeText={handleLocationChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {locationSearchText && typeof locationSearchText === 'string' && locationSearchText.trim().length > 0 && !selectedLocation && (
+                <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {locations
+                      .filter((loc) =>
+                        loc.name
+                          .toLowerCase()
+                          .includes(locationSearchText.toLowerCase())
+                      )
+                      .slice(0, 25)
+                      .map((loc) => (
+                        <TouchableOpacity
+                          key={loc.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => handleLocationSelect(loc)}
+                        >
+                          <Text className="text-base text-gray-900">
+                            {loc.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    {locations.filter((loc) =>
+                      loc.name
+                        .toLowerCase()
+                        .includes(locationSearchText.toLowerCase())
+                    ).length === 0 && (
+                      <Text className="text-gray-500 text-center py-3">
+                        No locations found.
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
             </View>
 
             <TouchableOpacity 

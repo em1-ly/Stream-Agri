@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { useRouter } from 'expo-router';
 import { powersync } from '@/powersync/system';
-import { Picker } from '@react-native-picker/picker';
 import { WarehouseRecord, ProductRecord, TransportRecord, DriverRecord } from '@/powersync/Schema';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
@@ -39,27 +38,11 @@ const FormInput = ({
       />
     </View>
 );
-  
-const FormPicker = ({ label, value, onValueChange, items, placeholder }: { label: string; value: string; onValueChange: (value: string) => void; items: Array<{label: string; value: any}>; placeholder: string; }) => (
-    <View className="mb-4">
-        <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-        <View className="bg-gray-100 border border-gray-300 rounded-lg">
-        <Picker
-            selectedValue={value}
-            onValueChange={onValueChange}
-            style={{ height: 50, color: value ? '#111827' : '#4B5563' }}
-        >
-            <Picker.Item label={placeholder} value="" color="#9CA3AF" />
-            {items.map((item) => (
-            <Picker.Item key={item.value} label={item.label} value={item.value} color="#374151" />
-            ))}
-        </Picker>
-        </View>
-    </View>
-);
 
 const InitiateDispatchScreen = () => {
   const router = useRouter();
+  
+  // Form values
   const [destinationId, setDestinationId] = useState('');
   const [productId, setProductId] = useState('');
   const [transportId, setTransportId] = useState('');
@@ -73,6 +56,7 @@ const InitiateDispatchScreen = () => {
   const [driverCellphone, setDriverCellphone] = useState('');
   const [noTransport, setNoTransport] = useState(false);
 
+  // Data arrays
   const [destinations, setDestinations] = useState<WarehouseRecord[]>([]);
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [transports, setTransports] = useState<TransportRecord[]>([]);
@@ -80,6 +64,18 @@ const InitiateDispatchScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // Search text states for type-to-search dropdowns
+  const [destinationSearchText, setDestinationSearchText] = useState('');
+  const [productSearchText, setProductSearchText] = useState('');
+  const [transportSearchText, setTransportSearchText] = useState('');
+  const [driverSearchText, setDriverSearchText] = useState('');
+
+  // Selected items for type-to-search dropdowns
+  const [selectedDestination, setSelectedDestination] = useState<WarehouseRecord | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<ProductRecord | null>(null);
+  const [selectedTransport, setSelectedTransport] = useState<TransportRecord | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<DriverRecord | null>(null);
 
   const getWarehouseDisplayName = (warehouse: WarehouseRecord | null): string => {
     if (!warehouse) return 'Not selected';
@@ -136,39 +132,90 @@ const InitiateDispatchScreen = () => {
     fetchData();
   }, []);
 
-  const handleDriverChange = (val: string) => {
-    if (val === 'NEW_DRIVER') {
+  // Handlers for destination
+  const handleDestinationSelect = (warehouse: WarehouseRecord) => {
+    setSelectedDestination(warehouse);
+    setDestinationId(String(warehouse.id));
+    setDestinationSearchText(getWarehouseDisplayName(warehouse));
+  };
+
+  const handleDestinationChange = (text: string) => {
+    setDestinationSearchText(text);
+    if (selectedDestination && text !== getWarehouseDisplayName(selectedDestination)) {
+      setSelectedDestination(null);
+      setDestinationId('');
+    }
+  };
+
+  // Handlers for product
+  const handleProductSelect = (product: ProductRecord) => {
+    setSelectedProduct(product);
+    setProductId(String(product.id));
+    setProductSearchText(product.name ?? `Product ${product.id}`);
+  };
+
+  const handleProductChange = (text: string) => {
+    setProductSearchText(text);
+    if (selectedProduct && text !== (selectedProduct.name ?? `Product ${selectedProduct.id}`)) {
+      setSelectedProduct(null);
+      setProductId('');
+    }
+  };
+
+  // Handlers for transport
+  const handleTransportSelect = (transport: TransportRecord) => {
+    setSelectedTransport(transport);
+    setTransportId(String(transport.id));
+    setTransportSearchText(transport.name ?? `Transport ${transport.id}`);
+    setIsAddingNewTransporter(false);
+    setNewTransportName('');
+  };
+
+  const handleTransportChange = (text: string) => {
+    setTransportSearchText(text);
+    if (text.trim().toLowerCase() === '+ add new transporter' || text.trim().toLowerCase() === 'add new') {
+      setIsAddingNewTransporter(true);
+      setSelectedTransport(null);
+      setTransportId('');
+      setNewTransportName('');
+      setTransportSearchText('');
+      return;
+    }
+    if (selectedTransport && text !== (selectedTransport.name ?? `Transport ${selectedTransport.id}`)) {
+      setSelectedTransport(null);
+      setTransportId('');
+      setIsAddingNewTransporter(false);
+    }
+  };
+
+  // Handlers for driver
+  const handleDriverSelect = (driver: DriverRecord) => {
+    setSelectedDriver(driver);
+    setSelectedDriverId(String(driver.id));
+    setDriverSearchText(driver.name || `Driver ${driver.id}`);
+    setDriverName(driver.name || '');
+    setDriverNationalId(driver.national_id || '');
+    setDriverCellphone(driver.cellphone || '');
+    setIsAddingNewDriver(false);
+  };
+
+  const handleDriverChange = (text: string) => {
+    setDriverSearchText(text);
+    if (text.trim().toLowerCase() === '+ add new driver' || text.trim().toLowerCase() === 'add new') {
       setIsAddingNewDriver(true);
+      setSelectedDriver(null);
       setSelectedDriverId('');
       setDriverName('');
       setDriverNationalId('');
       setDriverCellphone('');
+      setDriverSearchText('');
       return;
     }
-    
-    setIsAddingNewDriver(false);
-    setSelectedDriverId(val);
-    const driver = drivers.find(d => String(d.id) === val);
-    if (driver) {
-      setDriverName(driver.name || '');
-      setDriverNationalId(driver.national_id || '');
-      setDriverCellphone(driver.cellphone || '');
-    } else {
-      setDriverName('');
-      setDriverNationalId('');
-      setDriverCellphone('');
+    if (selectedDriver && text !== (selectedDriver.name || `Driver ${selectedDriver.id}`)) {
+      setSelectedDriver(null);
+      setSelectedDriverId('');
+      setIsAddingNewDriver(false);
     }
-  };
-
-  const handleTransportChange = (val: string) => {
-    if (val === 'NEW_TRANSPORTER') {
-      setIsAddingNewTransporter(true);
-      setTransportId('');
-      setNewTransportName('');
-      return;
-    }
-    setIsAddingNewTransporter(false);
-    setTransportId(val);
   };
 
   const handleCreateDispatch = async () => {
@@ -178,7 +225,20 @@ const InitiateDispatchScreen = () => {
       Alert.alert('Error', 'Please select a destination and a product.');
       return;
     }
-    const effectiveTransportId = isAddingNewTransporter ? newTransportName.trim() : transportId;
+    
+    // Resolve transport ID - use new transport name if adding new, otherwise use selected transport ID
+    let effectiveTransportId = transportId;
+    if (isAddingNewTransporter && newTransportName.trim()) {
+      effectiveTransportId = newTransportName.trim();
+    } else if (!transportId && transportSearchText && !isAddingNewTransporter) {
+      // Try to find transport by name if ID not set but search text exists
+      const foundTransport = transports.find(t => 
+        (t.name ?? `Transport ${t.id}`).toLowerCase() === transportSearchText.toLowerCase()
+      );
+      if (foundTransport) {
+        effectiveTransportId = String(foundTransport.id);
+      }
+    }
     
     if (!noTransport && (!effectiveTransportId || !truckReg || !driverName || !driverNationalId || !driverCellphone)) {
       Alert.alert('Error', 'Please fill in all transportation details or check "No Transportation Details".');
@@ -285,23 +345,101 @@ const InitiateDispatchScreen = () => {
         showsVerticalScrollIndicator={true}
         keyboardShouldPersistTaps="handled"
       >
-        <FormPicker
-          label="Destination Warehouse"
-          value={destinationId}
-          onValueChange={setDestinationId}
-          items={destinations.map(d => ({
-            label: getWarehouseDisplayName(d),
-            value: d.id,
-          }))}
-          placeholder="Select destination"
-        />
-        <FormPicker
-          label="Product"
-          value={productId}
-          onValueChange={setProductId}
-          items={products.map(p => ({ label: p.name ?? `Product ${p.id}`, value: p.id }))}
-          placeholder="Select product"
-        />
+        {/* Destination Warehouse */}
+        <View className="mb-4">
+          <Text className="text-gray-700 mb-1 font-semibold">Destination Warehouse</Text>
+          <TextInput
+            className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+            placeholderTextColor="#9CA3AF"
+            style={{ color: '#111827' }}
+            placeholder="Type to search destination warehouse..."
+            value={destinationSearchText}
+            onChangeText={handleDestinationChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {destinationSearchText && typeof destinationSearchText === 'string' && destinationSearchText.trim().length > 0 && !selectedDestination && (
+            <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {destinations
+                  .filter((d) =>
+                    getWarehouseDisplayName(d)
+                      .toLowerCase()
+                      .includes(destinationSearchText.toLowerCase())
+                  )
+                  .slice(0, 25)
+                  .map((d) => (
+                    <TouchableOpacity
+                      key={d.id}
+                      className="p-3 border-b border-gray-100 bg-white"
+                      onPress={() => handleDestinationSelect(d)}
+                    >
+                      <Text className="text-base text-gray-900">
+                        {getWarehouseDisplayName(d)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                {destinations.filter((d) =>
+                  getWarehouseDisplayName(d)
+                    .toLowerCase()
+                    .includes(destinationSearchText.toLowerCase())
+                ).length === 0 && (
+                  <Text className="text-gray-500 text-center py-3">
+                    No warehouses found.
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* Product */}
+        <View className="mb-4">
+          <Text className="text-gray-700 mb-1 font-semibold">Product</Text>
+          <TextInput
+            className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+            placeholderTextColor="#9CA3AF"
+            style={{ color: '#111827' }}
+            placeholder="Type to search product..."
+            value={productSearchText}
+            onChangeText={handleProductChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {productSearchText && typeof productSearchText === 'string' && productSearchText.trim().length > 0 && !selectedProduct && (
+            <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {products
+                  .filter((p) =>
+                    (p.name ?? `Product ${p.id}`)
+                      .toLowerCase()
+                      .includes(productSearchText.toLowerCase())
+                  )
+                  .slice(0, 25)
+                  .map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      className="p-3 border-b border-gray-100 bg-white"
+                      onPress={() => handleProductSelect(p)}
+                    >
+                      <Text className="text-base text-gray-900">
+                        {p.name ?? `Product ${p.id}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                {products.filter((p) =>
+                  (p.name ?? `Product ${p.id}`)
+                    .toLowerCase()
+                    .includes(productSearchText.toLowerCase())
+                ).length === 0 && (
+                  <Text className="text-gray-500 text-center py-3">
+                    No products found.
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
         
         <View className="flex-row items-center mb-4">
           <Text className="text-gray-700 font-semibold mr-3">No Transportation Details</Text>
@@ -310,38 +448,145 @@ const InitiateDispatchScreen = () => {
 
         {!noTransport && (
           <>
-            <FormPicker
-              label="Transport Name"
-              value={isAddingNewTransporter ? 'NEW_TRANSPORTER' : transportId}
-              onValueChange={handleTransportChange}
-              items={[
-                { label: '+ Add New Transporter', value: 'NEW_TRANSPORTER' },
-                ...transports.map(t => ({ label: t.name ?? `Transport ${t.id}`, value: String(t.id) }))
-              ]}
-              placeholder="Select transport"
-            />
-            
-            {isAddingNewTransporter && (
-              <FormInput 
-                label="New Transporter Name" 
-                value={newTransportName} 
-                onChangeText={setNewTransportName} 
-                placeholder="Enter new transporter name" 
+            {/* Transport Name */}
+            <View className="mb-4">
+              <Text className="text-gray-700 mb-1 font-semibold">Transport Name</Text>
+              <TextInput
+                className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                placeholderTextColor="#9CA3AF"
+                style={{ color: '#111827' }}
+                placeholder={isAddingNewTransporter ? "Enter new transporter name..." : "Type to search transport or type 'Add New'..."}
+                value={isAddingNewTransporter ? newTransportName : transportSearchText}
+                onChangeText={(text) => {
+                  if (isAddingNewTransporter) {
+                    setNewTransportName(text);
+                  } else {
+                    handleTransportChange(text);
+                  }
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
               />
-            )}
+              {!isAddingNewTransporter && transportSearchText && typeof transportSearchText === 'string' && transportSearchText.trim().length > 0 && !selectedTransport && (
+                <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    <TouchableOpacity
+                      className="p-3 border-b border-gray-100 bg-blue-50"
+                      onPress={() => {
+                        setIsAddingNewTransporter(true);
+                        setSelectedTransport(null);
+                        setTransportId('');
+                        setTransportSearchText('');
+                        setNewTransportName('');
+                      }}
+                    >
+                      <Text className="text-base text-blue-600 font-semibold">
+                        + Add New Transporter
+                      </Text>
+                    </TouchableOpacity>
+                    {transports
+                      .filter((t) =>
+                        (t.name ?? `Transport ${t.id}`)
+                          .toLowerCase()
+                          .includes(transportSearchText.toLowerCase())
+                      )
+                      .slice(0, 25)
+                      .map((t) => (
+                        <TouchableOpacity
+                          key={t.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => handleTransportSelect(t)}
+                        >
+                          <Text className="text-base text-gray-900">
+                            {t.name ?? `Transport ${t.id}`}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    {transports.filter((t) =>
+                      (t.name ?? `Transport ${t.id}`)
+                        .toLowerCase()
+                        .includes(transportSearchText.toLowerCase())
+                    ).length === 0 && (
+                      <Text className="text-gray-500 text-center py-3">
+                        No transports found.
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
 
             <FormInput label="Truck Reg Number" value={truckReg} onChangeText={setTruckReg} placeholder="Enter truck registration" />
             
-            <FormPicker
-              label="Driver"
-              value={isAddingNewDriver ? 'NEW_DRIVER' : selectedDriverId}
-              onValueChange={handleDriverChange}
-              items={[
-                { label: '+ Add New Driver', value: 'NEW_DRIVER' },
-                ...drivers.map(d => ({ label: d.name || `Driver ${d.id}`, value: String(d.id) }))
-              ]}
-              placeholder="Select driver"
-            />
+            {/* Driver */}
+            <View className="mb-4">
+              <Text className="text-gray-700 mb-1 font-semibold">Driver</Text>
+              <TextInput
+                className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                placeholderTextColor="#9CA3AF"
+                style={{ color: '#111827' }}
+                placeholder={isAddingNewDriver ? "Enter driver's name..." : "Type to search driver or type 'Add New'..."}
+                value={isAddingNewDriver ? driverName : driverSearchText}
+                onChangeText={(text) => {
+                  if (isAddingNewDriver) {
+                    setDriverName(text);
+                  } else {
+                    handleDriverChange(text);
+                  }
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {!isAddingNewDriver && driverSearchText && typeof driverSearchText === 'string' && driverSearchText.trim().length > 0 && !selectedDriver && (
+                <View className="max-h-48 border border-gray-200 rounded-lg mt-2">
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    <TouchableOpacity
+                      className="p-3 border-b border-gray-100 bg-blue-50"
+                      onPress={() => {
+                        setIsAddingNewDriver(true);
+                        setSelectedDriver(null);
+                        setSelectedDriverId('');
+                        setDriverName('');
+                        setDriverNationalId('');
+                        setDriverCellphone('');
+                        setDriverSearchText('');
+                      }}
+                    >
+                      <Text className="text-base text-blue-600 font-semibold">
+                        + Add New Driver
+                      </Text>
+                    </TouchableOpacity>
+                    {drivers
+                      .filter((d) =>
+                        (d.name || `Driver ${d.id}`)
+                          .toLowerCase()
+                          .includes(driverSearchText.toLowerCase())
+                      )
+                      .slice(0, 25)
+                      .map((d) => (
+                        <TouchableOpacity
+                          key={d.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => handleDriverSelect(d)}
+                        >
+                          <Text className="text-base text-gray-900">
+                            {d.name || `Driver ${d.id}`}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    {drivers.filter((d) =>
+                      (d.name || `Driver ${d.id}`)
+                        .toLowerCase()
+                        .includes(driverSearchText.toLowerCase())
+                    ).length === 0 && (
+                      <Text className="text-gray-500 text-center py-3">
+                        No drivers found.
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
             
             <FormInput 
               label="Driver Name" 

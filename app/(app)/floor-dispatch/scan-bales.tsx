@@ -243,14 +243,9 @@ const ScanBalesScreen = () => {
   };
 
   const handleBarcodeScanned = (scannedBarcode: string) => {
-    // 1) Hide the scanner instantly for better UX
-    setScannerVisible(false);
-    
-    // 2) Defer processing
-    setTimeout(() => {
     // Keep scanner open and process the barcode
+    // Scanner will stay open for continuous scanning
     handleSaveBale(scannedBarcode);
-    }, 0);
   };
 
   const handleDone = async () => {

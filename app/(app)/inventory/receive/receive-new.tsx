@@ -8,7 +8,8 @@ import {
   Platform,
   Alert,
   ScrollView,
-  Modal,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { powersync, setupPowerSync } from '@/powersync/system';
 import { useRouter } from 'expo-router';
@@ -42,9 +43,12 @@ const CompleteReceiptScreen = () => {
   const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [warehousePickerVisible, setWarehousePickerVisible] = useState(false);
-  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
-  const [productPickerVisible, setProductPickerVisible] = useState(false);
+  const [warehouseSearchText, setWarehouseSearchText] = useState('');
+  const [locationSearchText, setLocationSearchText] = useState('');
+  const [productSearchText, setProductSearchText] = useState('');
+  const [isWarehouseFocused, setIsWarehouseFocused] = useState(false);
+  const [isLocationFocused, setIsLocationFocused] = useState(false);
+  const [isProductFocused, setIsProductFocused] = useState(false);
 
   useEffect(() => {
     setupPowerSync();
@@ -115,9 +119,14 @@ const CompleteReceiptScreen = () => {
             // does not belong to this warehouse list, reset to default.
             if (!selectedLocation || !rows.some((l) => l.id === selectedLocation.id)) {
               setSelectedLocation(def);
+              setLocationSearchText(getLocationDisplayName(def, selectedWarehouse));
+            } else {
+              // Update search text to match selected location
+              setLocationSearchText(getLocationDisplayName(selectedLocation, selectedWarehouse));
             }
           } else {
             setSelectedLocation(null);
+            setLocationSearchText('');
           }
         },
         onError: (err) => {
@@ -160,6 +169,50 @@ const CompleteReceiptScreen = () => {
     return product.name || product.id;
   };
 
+  // Handlers for warehouse
+  const handleWarehouseSelect = (warehouse: Warehouse) => {
+    setSelectedWarehouse(warehouse);
+    setWarehouseSearchText(getWarehouseDisplayName(warehouse));
+    setIsWarehouseFocused(false);
+  };
+
+  const handleWarehouseChange = (text: string) => {
+    setWarehouseSearchText(text);
+    if (selectedWarehouse && text !== getWarehouseDisplayName(selectedWarehouse)) {
+      setSelectedWarehouse(null);
+      setSelectedLocation(null);
+      setLocationSearchText('');
+    }
+  };
+
+  // Handlers for location
+  const handleLocationSelect = (location: Location) => {
+    setSelectedLocation(location);
+    setLocationSearchText(getLocationDisplayName(location, selectedWarehouse));
+    setIsLocationFocused(false);
+  };
+
+  const handleLocationChange = (text: string) => {
+    setLocationSearchText(text);
+    if (selectedLocation && text !== getLocationDisplayName(selectedLocation, selectedWarehouse)) {
+      setSelectedLocation(null);
+    }
+  };
+
+  // Handlers for product
+  const handleProductSelect = (product: Product) => {
+    setSelectedProduct(product);
+    setProductSearchText(getProductDisplayName(product));
+    setIsProductFocused(false);
+  };
+
+  const handleProductChange = (text: string) => {
+    setProductSearchText(text);
+    if (selectedProduct && text !== getProductDisplayName(selectedProduct)) {
+      setSelectedProduct(null);
+    }
+  };
+
   const handleStartScanning = () => {
     if (!selectedWarehouse || !selectedLocation || !selectedProduct) {
       Alert.alert(
@@ -193,7 +246,11 @@ const CompleteReceiptScreen = () => {
       className="flex-1 bg-white"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <ScrollView className="flex-1 p-5" contentContainerStyle={{ paddingBottom: 20 }}>
+      <ScrollView 
+        className="flex-1 p-5" 
+        contentContainerStyle={{ paddingBottom: 20 }}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Header card – styled similar to Odoo wizard */}
         <View className="p-4 bg-[#e6f4ff] rounded-lg border border-[#b3ddff] mb-4">
           <Text className="text-lg font-bold text-[#003366] mb-2">
@@ -223,41 +280,184 @@ const CompleteReceiptScreen = () => {
 
         {/* Body card – inputs & action, styled similar to other screens */}
         <View className="bg-white rounded-lg border border-gray-200 p-4">
-          <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
-          <TouchableOpacity
-            className="border border-gray-300 rounded-lg p-3 mb-3 flex-row justify-between items-center bg-gray-50"
-            onPress={() => setWarehousePickerVisible(true)}
-          >
-            <Text className="text-gray-900">
-              {selectedWarehouse ? getWarehouseDisplayName(selectedWarehouse) : 'Select warehouse'}
-            </Text>
-          </TouchableOpacity>
+          {/* Warehouse type-and-search */}
+          <View className="mb-4">
+            <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search warehouse..."
+              value={warehouseSearchText}
+              onChangeText={handleWarehouseChange}
+              onFocus={() => setIsWarehouseFocused(true)}
+              onBlur={() => setTimeout(() => setIsWarehouseFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isWarehouseFocused || (warehouseSearchText && warehouseSearchText.trim().length > 0 && !selectedWarehouse)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView 
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {warehouses
+                    .filter((wh) =>
+                      getWarehouseDisplayName(wh)
+                        .toLowerCase()
+                        .includes(warehouseSearchText.toLowerCase())
+                    )
+                    .slice(0, 25)
+                    .map((wh) => (
+                      <TouchableOpacity
+                        key={wh.id}
+                        className="p-3 border-b border-gray-100 bg-white"
+                        onPress={() => {
+                          handleWarehouseSelect(wh);
+                          Keyboard.dismiss();
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text className="text-base text-gray-900">
+                          {getWarehouseDisplayName(wh)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {warehouses.filter((wh) =>
+                    getWarehouseDisplayName(wh)
+                      .toLowerCase()
+                      .includes(warehouseSearchText.toLowerCase())
+                  ).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">
+                      No warehouses found.
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <Text className="font-semibold text-gray-700 mb-1">Location</Text>
-          <TouchableOpacity
-            className="border border-gray-300 rounded-lg p-3 mb-6 flex-row justify-between items-center bg-gray-50"
-            onPress={() => {
-              if (!selectedWarehouse) {
-                Alert.alert('Select Warehouse', 'Please select a warehouse first.');
-                return;
-              }
-              setLocationPickerVisible(true);
-            }}
-          >
-            <Text className="text-gray-900">
-              {selectedLocation ? getLocationDisplayName(selectedLocation, selectedWarehouse) : 'Select location'}
-            </Text>
-          </TouchableOpacity>
+          {/* Location type-and-search */}
+          <View className="mb-4">
+            <Text className="font-semibold text-gray-700 mb-1">Location</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder={selectedWarehouse ? "Type to search location..." : "Select warehouse first"}
+              value={locationSearchText}
+              onChangeText={handleLocationChange}
+              onFocus={() => {
+                if (!selectedWarehouse) {
+                  Alert.alert('Select Warehouse', 'Please select a warehouse first.');
+                  return;
+                }
+                setIsLocationFocused(true);
+              }}
+              onBlur={() => setTimeout(() => setIsLocationFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!!selectedWarehouse}
+            />
+            {selectedWarehouse && (isLocationFocused || (locationSearchText && locationSearchText.trim().length > 0 && !selectedLocation)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView 
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {locations
+                    .filter((loc) =>
+                      getLocationDisplayName(loc, selectedWarehouse)
+                        .toLowerCase()
+                        .includes(locationSearchText.toLowerCase())
+                    )
+                    .slice(0, 25)
+                    .map((loc) => (
+                      <TouchableOpacity
+                        key={loc.id}
+                        className="p-3 border-b border-gray-100 bg-white"
+                        onPress={() => {
+                          handleLocationSelect(loc);
+                          Keyboard.dismiss();
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text className="text-base text-gray-900">
+                          {getLocationDisplayName(loc, selectedWarehouse)}
+                          {loc.default_location ? '  (Default)' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {locations.filter((loc) =>
+                    getLocationDisplayName(loc, selectedWarehouse)
+                      .toLowerCase()
+                      .includes(locationSearchText.toLowerCase())
+                  ).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">
+                      No locations found.
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <Text className="font-semibold text-gray-700 mb-1">Product</Text>
-          <TouchableOpacity
-            className="border border-gray-300 rounded-lg p-3 mb-6 flex-row justify-between items-center bg-gray-50"
-            onPress={() => setProductPickerVisible(true)}
-          >
-            <Text className="text-gray-900">
-              {selectedProduct ? getProductDisplayName(selectedProduct) : 'Select product'}
-            </Text>
-          </TouchableOpacity>
+          {/* Product type-and-search */}
+          <View className="mb-6">
+            <Text className="font-semibold text-gray-700 mb-1">Product</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search product..."
+              value={productSearchText}
+              onChangeText={handleProductChange}
+              onFocus={() => setIsProductFocused(true)}
+              onBlur={() => setTimeout(() => setIsProductFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isProductFocused || (productSearchText && productSearchText.trim().length > 0 && !selectedProduct)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView 
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {products
+                    .filter((prod) =>
+                      getProductDisplayName(prod)
+                        .toLowerCase()
+                        .includes(productSearchText.toLowerCase())
+                    )
+                    .slice(0, 25)
+                    .map((prod) => (
+                      <TouchableOpacity
+                        key={prod.id}
+                        className="p-3 border-b border-gray-100 bg-white"
+                        onPress={() => {
+                          handleProductSelect(prod);
+                          Keyboard.dismiss();
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text className="text-base text-gray-900">
+                          {getProductDisplayName(prod)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {products.filter((prod) =>
+                    getProductDisplayName(prod)
+                      .toLowerCase()
+                      .includes(productSearchText.toLowerCase())
+                  ).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">
+                      No products found.
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
           <TouchableOpacity
             onPress={handleStartScanning}
@@ -266,132 +466,6 @@ const CompleteReceiptScreen = () => {
             <Text className="text-white font-bold text-lg">Start Scanning</Text>
           </TouchableOpacity>
         </View>
-
-        {/* Warehouse picker */}
-        <Modal
-          visible={warehousePickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setWarehousePickerVisible(false)}
-        >
-          <View className="flex-1 justify-end bg-black/40">
-            <View className="bg-white rounded-t-2xl max-h-[60%] p-4">
-              <Text className="text-lg font-bold text-[#65435C] mb-3">Select Warehouse</Text>
-              <ScrollView>
-                {warehouses.map((wh) => (
-                  <TouchableOpacity
-                    key={wh.id}
-                    className="py-3 border-b border-gray-200"
-                    onPress={() => {
-                      setSelectedWarehouse(wh);
-                      setWarehousePickerVisible(false);
-                    }}
-                  >
-                    <Text className="text-base text-gray-900">
-                      {getWarehouseDisplayName(wh)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {warehouses.length === 0 && (
-                  <Text className="text-gray-500 text-center py-4">
-                    No warehouses synced from Odoo yet.
-                  </Text>
-                )}
-              </ScrollView>
-              <TouchableOpacity
-                className="mt-3 py-3 rounded-xl bg-gray-200 items-center"
-                onPress={() => setWarehousePickerVisible(false)}
-              >
-                <Text className="text-gray-800 font-semibold">Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Location picker */}
-        <Modal
-          visible={locationPickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setLocationPickerVisible(false)}
-        >
-          <View className="flex-1 justify-end bg-black/40">
-            <View className="bg-white rounded-t-2xl max-h-[60%] p-4">
-              <Text className="text-lg font-bold text-[#65435C] mb-3">
-                Select Location ({getWarehouseDisplayName(selectedWarehouse)})
-              </Text>
-              <ScrollView>
-                {locations.map((loc) => (
-                  <TouchableOpacity
-                    key={loc.id}
-                    className="py-3 border-b border-gray-200"
-                    onPress={() => {
-                      setSelectedLocation(loc);
-                      setLocationPickerVisible(false);
-                    }}
-                  >
-                    <Text className="text-base text-gray-900">
-                      {getLocationDisplayName(loc, selectedWarehouse)}
-                      {loc.default_location ? '  (Default)' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {locations.length === 0 && (
-                  <Text className="text-gray-500 text-center py-4">
-                    No locations found for this warehouse.
-                  </Text>
-                )}
-              </ScrollView>
-              <TouchableOpacity
-                className="mt-3 py-3 rounded-xl bg-gray-200 items-center"
-                onPress={() => setLocationPickerVisible(false)}
-              >
-                <Text className="text-gray-800 font-semibold">Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Product picker */}
-        <Modal
-          visible={productPickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setProductPickerVisible(false)}
-        >
-          <View className="flex-1 justify-end bg-black/40">
-            <View className="bg-white rounded-t-2xl max-h-[60%] p-4">
-              <Text className="text-lg font-bold text-[#65435C] mb-3">Select Product</Text>
-              <ScrollView>
-                {products.map((prod) => (
-                  <TouchableOpacity
-                    key={prod.id}
-                    className="py-3 border-b border-gray-200"
-                    onPress={() => {
-                      setSelectedProduct(prod);
-                      setProductPickerVisible(false);
-                    }}
-                  >
-                    <Text className="text-base text-gray-900">
-                      {getProductDisplayName(prod)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {products.length === 0 && (
-                  <Text className="text-gray-500 text-center py-4">
-                    No products synced from Odoo yet.
-                  </Text>
-                )}
-              </ScrollView>
-              <TouchableOpacity
-                className="mt-3 py-3 rounded-xl bg-gray-200 items-center"
-                onPress={() => setProductPickerVisible(false)}
-              >
-                <Text className="text-gray-800 font-semibold">Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
     </>

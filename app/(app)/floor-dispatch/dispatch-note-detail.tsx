@@ -68,12 +68,16 @@ const DispatchNoteDetailScreen = () => {
             wh.name as warehouse_destination_name,
             t.name as transport_name,
             p.name as product_name,
-            sp.name as origin_name
+            sp.name as origin_name,
+            COALESCE(dn.driver_name, drv.name) as driver_name,
+            COALESCE(dn.driver_national_id, drv.national_id) as driver_national_id,
+            COALESCE(dn.driver_cellphone, drv.cellphone) as driver_cellphone
            FROM floor_dispatch_note dn
            LEFT JOIN warehouse_warehouse wh ON dn.warehouse_destination_id = wh.id
            LEFT JOIN warehouse_transport t ON dn.transport_id = t.id
            LEFT JOIN warehouse_product p ON dn.product_id = p.id
            LEFT JOIN floor_maintenance_selling_point sp ON dn.origin_id = sp.id
+           LEFT JOIN warehouse_driver drv ON dn.driver_id = drv.id
            WHERE dn.id = ? OR dn.mobile_app_id = ?
            LIMIT 1`,
           [id, id],
@@ -251,12 +255,16 @@ const DispatchNoteDetailScreen = () => {
                   wh.name as warehouse_destination_name,
                   t.name as transport_name,
                   p.name as product_name,
-                  sp.name as origin_name
+                  sp.name as origin_name,
+                  COALESCE(dn.driver_name, drv.name) as driver_name,
+                  COALESCE(dn.driver_national_id, drv.national_id) as driver_national_id,
+                  COALESCE(dn.driver_cellphone, drv.cellphone) as driver_cellphone
                  FROM floor_dispatch_note dn
                  LEFT JOIN warehouse_warehouse wh ON dn.warehouse_destination_id = wh.id
                  LEFT JOIN warehouse_transport t ON dn.transport_id = t.id
                  LEFT JOIN warehouse_product p ON dn.product_id = p.id
                  LEFT JOIN floor_maintenance_selling_point sp ON dn.origin_id = sp.id
+                 LEFT JOIN warehouse_driver drv ON dn.driver_id = drv.id
                  WHERE dn.id = ? OR dn.mobile_app_id = ?`,
                 [id, id]
               );
@@ -308,12 +316,16 @@ const DispatchNoteDetailScreen = () => {
           wh.name as warehouse_destination_name,
           t.name as transport_name,
           p.name as product_name,
-          sp.name as origin_name
+          sp.name as origin_name,
+          COALESCE(dn.driver_name, drv.name) as driver_name,
+          COALESCE(dn.driver_national_id, drv.national_id) as driver_national_id,
+          COALESCE(dn.driver_cellphone, drv.cellphone) as driver_cellphone
          FROM floor_dispatch_note dn
          LEFT JOIN warehouse_warehouse wh ON dn.warehouse_destination_id = wh.id
          LEFT JOIN warehouse_transport t ON dn.transport_id = t.id
          LEFT JOIN warehouse_product p ON dn.product_id = p.id
          LEFT JOIN floor_maintenance_selling_point sp ON dn.origin_id = sp.id
+         LEFT JOIN warehouse_driver drv ON dn.driver_id = drv.id
          WHERE dn.id = ? OR dn.mobile_app_id = ?
          LIMIT 1`,
         [dispatchNoteId, dispatchNoteId]

@@ -4,7 +4,6 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { powersync } from '@/powersync/system';
 import { FlashList } from '@shopify/flash-list';
 import { Camera, CheckCircle, Truck, X } from 'lucide-react-native';
-import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -68,6 +67,14 @@ const DispatchNoteDetailScreen = () => {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [isSavingTransport, setIsSavingTransport] = useState(false);
 
+  // Search text states for type-and-search
+  const [transportSearchText, setTransportSearchText] = useState('');
+  const [driverSearchText, setDriverSearchText] = useState('');
+  const [isTransportFocused, setIsTransportFocused] = useState(false);
+  const [isDriverFocused, setIsDriverFocused] = useState(false);
+  const [selectedTransport, setSelectedTransport] = useState<any | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<any | null>(null);
+
   useEffect(() => {
     const fetchTransportData = async () => {
       try {
@@ -80,13 +87,23 @@ const DispatchNoteDetailScreen = () => {
 
         // Pre-fill existing details if available
         if (dispatchNote) {
-          if (dispatchNote.transport_id) setTransportId(String(dispatchNote.transport_id));
+          if (dispatchNote.transport_id) {
+            const transportIdStr = String(dispatchNote.transport_id);
+            setTransportId(transportIdStr);
+            const transport = t.find((tr: any) => String(tr.id) === transportIdStr);
+            if (transport) {
+              setSelectedTransport(transport);
+              setTransportSearchText(transport.name || '');
+            }
+          }
           if (dispatchNote.truck_reg_number) setTruckReg(dispatchNote.truck_reg_number);
           if (dispatchNote.driver_id) {
             const drvId = String(dispatchNote.driver_id);
             setSelectedDriverId(drvId);
             const drv = d.find((driver: any) => String(driver.id) === drvId);
             if (drv) {
+              setSelectedDriver(drv);
+              setDriverSearchText(drv.name || '');
               setDriverName(drv.name || '');
               setDriverNationalId(drv.national_id || '');
               setDriverCellphone(drv.cellphone || '');
@@ -100,34 +117,45 @@ const DispatchNoteDetailScreen = () => {
     if (showTransportModal) fetchTransportData();
   }, [showTransportModal]);
 
-  const handleDriverChange = (val: string) => {
-    if (val === 'NEW_DRIVER') {
-      setIsAddingNewDriver(true);
+  const handleDriverSelect = (driver: any) => {
+    setSelectedDriver(driver);
+    setSelectedDriverId(String(driver.id));
+    setDriverSearchText(driver.name || '');
+    setIsDriverFocused(false);
+    setIsAddingNewDriver(false);
+    setDriverName(driver.name || '');
+    setDriverNationalId(driver.national_id || '');
+    setDriverCellphone(driver.cellphone || '');
+  };
+
+  const handleDriverChange = (text: string) => {
+    setDriverSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedDriver(null);
       setSelectedDriverId('');
+      setIsAddingNewDriver(false);
       setDriverName('');
       setDriverNationalId('');
       setDriverCellphone('');
-      return;
-    }
-    setIsAddingNewDriver(false);
-    setSelectedDriverId(val);
-    const driver = drivers.find(d => String(d.id) === val);
-    if (driver) {
-      setDriverName(driver.name || '');
-      setDriverNationalId(driver.national_id || '');
-      setDriverCellphone(driver.cellphone || '');
     }
   };
 
-  const handleTransportChange = (val: string) => {
-    if (val === 'NEW_TRANSPORTER') {
-      setIsAddingNewTransporter(true);
-      setTransportId('');
-      setNewTransportName('');
-      return;
-    }
+  const handleTransportSelect = (transport: any) => {
+    setSelectedTransport(transport);
+    setTransportId(String(transport.id));
+    setTransportSearchText(transport.name || '');
+    setIsTransportFocused(false);
     setIsAddingNewTransporter(false);
-    setTransportId(val);
+  };
+
+  const handleTransportChange = (text: string) => {
+    setTransportSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedTransport(null);
+      setTransportId('');
+      setIsAddingNewTransporter(false);
+      setNewTransportName('');
+    }
   };
 
   const saveTransportDetails = async () => {
@@ -571,21 +599,75 @@ const DispatchNoteDetailScreen = () => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true}>
+                {/* Transporter type-and-search */}
                 <View className="mb-4">
                   <Text className="text-gray-700 mb-1 font-semibold">Transporter</Text>
-                  <View className="bg-gray-100 border border-gray-300 rounded-lg">
-                    <Picker
-                      selectedValue={isAddingNewTransporter ? 'NEW_TRANSPORTER' : transportId}
-                      onValueChange={handleTransportChange}
-                    >
-                      <Picker.Item label="Select Transporter" value="" />
-                      <Picker.Item label="+ Add New Transporter" value="NEW_TRANSPORTER" />
-                      {transporters.map(t => (
-                        <Picker.Item key={t.id} label={t.name} value={String(t.id)} />
-                      ))}
-                    </Picker>
-                  </View>
+                  <TextInput
+                    className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                    placeholderTextColor="#9CA3AF"
+                    style={{ color: '#111827' }}
+                    placeholder="Type to search transporter or add new..."
+                    value={transportSearchText}
+                    onChangeText={handleTransportChange}
+                    onFocus={() => setIsTransportFocused(true)}
+                    onBlur={() => setTimeout(() => setIsTransportFocused(false), 100)}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {(isTransportFocused || (transportSearchText && transportSearchText.trim().length > 0 && !selectedTransport && !isAddingNewTransporter)) && (
+                    <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled={true}
+                      >
+                        {/* Add New Transporter option */}
+                        {transportSearchText.trim().length > 0 && (
+                          <TouchableOpacity
+                            className="p-3 border-b border-gray-100 bg-blue-50"
+                            onPress={() => {
+                              setIsAddingNewTransporter(true);
+                              setNewTransportName(transportSearchText);
+                              setSelectedTransport(null);
+                              setTransportId('');
+                              setIsTransportFocused(false);
+                              Keyboard.dismiss();
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text className="text-base text-blue-700 font-semibold">
+                              + Add New: "{transportSearchText}"
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {transporters
+                          .filter((t) =>
+                            (t.name || '').toLowerCase().includes(transportSearchText.toLowerCase())
+                          )
+                          .slice(0, 25)
+                          .map((t) => (
+                            <TouchableOpacity
+                              key={t.id}
+                              className="p-3 border-b border-gray-100 bg-white"
+                              onPress={() => {
+                                handleTransportSelect(t);
+                                Keyboard.dismiss();
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text className="text-base text-gray-900">{t.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        {transporters.filter((t) =>
+                          (t.name || '').toLowerCase().includes(transportSearchText.toLowerCase())
+                        ).length === 0 && transportSearchText.trim().length > 0 && (
+                          <Text className="text-gray-500 text-center py-3">
+                            No transporters found. Use "+ Add New" above.
+                          </Text>
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
 
                 {isAddingNewTransporter && (
@@ -594,7 +676,10 @@ const DispatchNoteDetailScreen = () => {
                     <TextInput
                       className="bg-gray-100 border border-gray-300 rounded-lg p-3"
                       value={newTransportName}
-                      onChangeText={setNewTransportName}
+                      onChangeText={(text) => {
+                        setNewTransportName(text);
+                        setTransportSearchText(text);
+                      }}
                       placeholder="Enter transporter name"
                     />
                   </View>
@@ -611,20 +696,76 @@ const DispatchNoteDetailScreen = () => {
                   />
                 </View>
 
+                {/* Driver type-and-search */}
                 <View className="mb-4">
                   <Text className="text-gray-700 mb-1 font-semibold">Driver</Text>
-                  <View className="bg-gray-100 border border-gray-300 rounded-lg">
-                    <Picker
-                      selectedValue={isAddingNewDriver ? 'NEW_DRIVER' : selectedDriverId}
-                      onValueChange={handleDriverChange}
-                    >
-                      <Picker.Item label="Select Driver" value="" />
-                      <Picker.Item label="+ Add New Driver" value="NEW_DRIVER" />
-                      {drivers.map(d => (
-                        <Picker.Item key={d.id} label={d.name} value={String(d.id)} />
-                      ))}
-                    </Picker>
-                  </View>
+                  <TextInput
+                    className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+                    placeholderTextColor="#9CA3AF"
+                    style={{ color: '#111827' }}
+                    placeholder="Type to search driver or add new..."
+                    value={driverSearchText}
+                    onChangeText={handleDriverChange}
+                    onFocus={() => setIsDriverFocused(true)}
+                    onBlur={() => setTimeout(() => setIsDriverFocused(false), 100)}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {(isDriverFocused || (driverSearchText && driverSearchText.trim().length > 0 && !selectedDriver && !isAddingNewDriver)) && (
+                    <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled={true}
+                      >
+                        {/* Add New Driver option */}
+                        {driverSearchText.trim().length > 0 && (
+                          <TouchableOpacity
+                            className="p-3 border-b border-gray-100 bg-blue-50"
+                            onPress={() => {
+                              setIsAddingNewDriver(true);
+                              setDriverName(driverSearchText);
+                              setSelectedDriver(null);
+                              setSelectedDriverId('');
+                              setDriverNationalId('');
+                              setDriverCellphone('');
+                              setIsDriverFocused(false);
+                              Keyboard.dismiss();
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text className="text-base text-blue-700 font-semibold">
+                              + Add New: "{driverSearchText}"
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {drivers
+                          .filter((d) =>
+                            (d.name || '').toLowerCase().includes(driverSearchText.toLowerCase())
+                          )
+                          .slice(0, 25)
+                          .map((d) => (
+                            <TouchableOpacity
+                              key={d.id}
+                              className="p-3 border-b border-gray-100 bg-white"
+                              onPress={() => {
+                                handleDriverSelect(d);
+                                Keyboard.dismiss();
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text className="text-base text-gray-900">{d.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        {drivers.filter((d) =>
+                          (d.name || '').toLowerCase().includes(driverSearchText.toLowerCase())
+                        ).length === 0 && driverSearchText.trim().length > 0 && (
+                          <Text className="text-gray-500 text-center py-3">
+                            No drivers found. Use "+ Add New" above.
+                          </Text>
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
 
                 <View className="mb-4">

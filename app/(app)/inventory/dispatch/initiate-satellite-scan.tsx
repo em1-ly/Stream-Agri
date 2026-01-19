@@ -1,27 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { powersync } from '@/powersync/system';
-import { Picker } from '@react-native-picker/picker';
 import { WarehouseRecord, ProductRecord } from '@/powersync/Schema';
-
-const FormPicker = ({ label, value, onValueChange, items, placeholder }: { label: string; value: string; onValueChange: (value: string) => void; items: Array<{label: string; value: any}>; placeholder: string; }) => (
-    <View className="mb-4">
-        <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-        <View className="bg-gray-100 border border-gray-300 rounded-lg">
-        <Picker
-            selectedValue={value}
-            onValueChange={onValueChange}
-            style={{ height: 50, color: value ? '#111827' : '#4B5563' }}
-        >
-            <Picker.Item label={placeholder} value="" color="#9CA3AF" />
-            {items.map((item) => (
-            <Picker.Item key={item.value} label={item.label} value={item.value} color="#374151" />
-            ))}
-        </Picker>
-        </View>
-    </View>
-);
 
 const FormReadonly = ({ label, value }: { label: string; value: string }) => (
     <View className="mb-4">
@@ -39,6 +20,11 @@ const InitiateSatelliteScanScreen = () => {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [locationName, setLocationName] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
+
+  // Search text state for warehouse
+  const [warehouseSearchText, setWarehouseSearchText] = useState('');
+  const [isWarehouseFocused, setIsWarehouseFocused] = useState(false);
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseRecord | null>(null);
 
   const [satelliteWarehouses, setSatelliteWarehouses] = useState<WarehouseRecord[]>([]);
   const [products, setProducts] = useState<ProductRecord[]>([]);
@@ -93,13 +79,15 @@ const InitiateSatelliteScanScreen = () => {
     loadData();
   }, []);
 
-  const handleWarehouseChange = async (value: any) => {
-    const idStr = String(value || '');
+  const handleWarehouseSelect = async (warehouse: WarehouseRecord) => {
+    setSelectedWarehouse(warehouse);
+    const idStr = String(warehouse.id);
     setWarehouseId(idStr);
+    const displayName = warehouse.name ? `${warehouse.name} - (satellite)` : `Warehouse ${warehouse.id}`;
+    setWarehouseSearchText(displayName);
+    setIsWarehouseFocused(false);
     setLocationId(null);
     setLocationName(null);
-
-    if (!value) return;
 
     try {
       // Match onchange_warehouse_source_id default location logic
@@ -112,12 +100,9 @@ const InitiateSatelliteScanScreen = () => {
 
         // Build a display name similar to getLocationDisplayName in complete-receipt:
         // "<WarehouseName>/<LocationName>" where available.
-        const wh = satelliteWarehouses.find(
-          (w) => String(w.id) === idStr
-        );
         const parts: string[] = [];
-        if (wh?.name) {
-          parts.push(wh.name);
+        if (warehouse.name) {
+          parts.push(warehouse.name);
         }
         if (defaultLocation.name) {
           parts.push(defaultLocation.name);
@@ -131,6 +116,16 @@ const InitiateSatelliteScanScreen = () => {
       }
     } catch (error) {
       console.error('Failed to load default location for satellite warehouse:', error);
+    }
+  };
+
+  const handleWarehouseChange = (text: string) => {
+    setWarehouseSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedWarehouse(null);
+      setWarehouseId('');
+      setLocationId(null);
+      setLocationName(null);
     }
   };
 
@@ -193,16 +188,59 @@ const InitiateSatelliteScanScreen = () => {
         >
           <Text className="text-xl font-bold text-[#65435C] mb-4">Start Satellite Dispatch Scan</Text>
 
-          <FormPicker
-            label="Satellite Warehouse"
-            value={warehouseId}
-              onValueChange={handleWarehouseChange}
-            items={satelliteWarehouses.map(w => ({
-              label: w.name ? `${w.name} - (satellite)` : `Warehouse ${w.id}`,
-              value: w.id
-            }))}
-            placeholder="Select satellite warehouse"
-          />
+          {/* Satellite Warehouse type-and-search */}
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Satellite Warehouse</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search satellite warehouse..."
+              value={warehouseSearchText}
+              onChangeText={handleWarehouseChange}
+              onFocus={() => setIsWarehouseFocused(true)}
+              onBlur={() => setTimeout(() => setIsWarehouseFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isWarehouseFocused || (warehouseSearchText && warehouseSearchText.trim().length > 0 && !selectedWarehouse)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {satelliteWarehouses
+                    .filter((w) => {
+                      const displayName = w.name ? `${w.name} - (satellite)` : `Warehouse ${w.id}`;
+                      return displayName.toLowerCase().includes(warehouseSearchText.toLowerCase());
+                    })
+                    .slice(0, 25)
+                    .map((w) => {
+                      const displayName = w.name ? `${w.name} - (satellite)` : `Warehouse ${w.id}`;
+                      return (
+                        <TouchableOpacity
+                          key={w.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => {
+                            handleWarehouseSelect(w);
+                            Keyboard.dismiss();
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text className="text-base text-gray-900">{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {satelliteWarehouses.filter((w) => {
+                    const displayName = w.name ? `${w.name} - (satellite)` : `Warehouse ${w.id}`;
+                    return displayName.toLowerCase().includes(warehouseSearchText.toLowerCase());
+                  }).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">No warehouses found.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
           <FormReadonly 
             label="Location" 

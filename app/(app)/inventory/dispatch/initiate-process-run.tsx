@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, KeyboardAvoidingView, Platform, Keyboard, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { powersync } from '@/powersync/system';
-import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { WarehouseRecord, ProductRecord } from '@/powersync/Schema';
@@ -13,24 +12,6 @@ type InstructionRecord = {
   status?: string;
 };
 
-const FormPicker = ({ label, value, onValueChange, items, placeholder }: { label: string; value: string; onValueChange: (value: string) => void; items: Array<{label: string; value: any}>; placeholder: string; }) => (
-    <View className="mb-4">
-        <Text className="text-gray-700 mb-1 font-semibold">{label}</Text>
-        <View className="bg-gray-100 border border-gray-300 rounded-lg">
-        <Picker
-            selectedValue={value}
-            onValueChange={onValueChange}
-            style={{ height: 50, color: value ? '#111827' : '#4B5563' }}
-        >
-            <Picker.Item label={placeholder} value="" color="#9CA3AF" />
-            {items.map((item) => (
-            <Picker.Item key={item.value} label={item.label} value={item.value} color="#374151" />
-            ))}
-        </Picker>
-        </View>
-    </View>
-);
-
 const InitiateProcessRunScreen = () => {
   const router = useRouter();
 
@@ -38,6 +19,24 @@ const InitiateProcessRunScreen = () => {
   const [destinationId, setDestinationId] = useState('');
   const [productId, setProductId] = useState('');
   const [instructionId, setInstructionId] = useState('');
+
+  // Search text states
+  const [sourceSearchText, setSourceSearchText] = useState('');
+  const [destinationSearchText, setDestinationSearchText] = useState('');
+  const [productSearchText, setProductSearchText] = useState('');
+  const [instructionSearchText, setInstructionSearchText] = useState('');
+
+  // Focus states for dropdown visibility
+  const [isSourceFocused, setIsSourceFocused] = useState(false);
+  const [isDestinationFocused, setIsDestinationFocused] = useState(false);
+  const [isProductFocused, setIsProductFocused] = useState(false);
+  const [isInstructionFocused, setIsInstructionFocused] = useState(false);
+
+  // Selected item states
+  const [selectedSource, setSelectedSource] = useState<WarehouseRecord | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<WarehouseRecord | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<ProductRecord | null>(null);
+  const [selectedInstruction, setSelectedInstruction] = useState<InstructionRecord | null>(null);
 
   const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([]);
   const [processRunWarehouses, setProcessRunWarehouses] = useState<WarehouseRecord[]>([]);
@@ -88,6 +87,8 @@ const InitiateProcessRunScreen = () => {
         );
         if (green) {
           setProductId(String(green.id));
+          setSelectedProduct(green);
+          setProductSearchText(green.name ?? `Product ${green.id}`);
         }
       } catch (error) {
         console.error('Failed to load process run dispatch data:', error);
@@ -99,6 +100,67 @@ const InitiateProcessRunScreen = () => {
 
     loadData();
   }, []);
+
+  // Handler functions for type-and-search
+  const handleSourceSelect = (warehouse: WarehouseRecord) => {
+    setSelectedSource(warehouse);
+    setSourceId(String(warehouse.id));
+    setSourceSearchText(warehouse.name ? `${warehouse.name}${warehouse.warehouse_type ? ` - (${warehouse.warehouse_type})` : ''}` : `Warehouse ${warehouse.id}`);
+    setIsSourceFocused(false);
+  };
+
+  const handleSourceChange = (text: string) => {
+    setSourceSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedSource(null);
+      setSourceId('');
+    }
+  };
+
+  const handleDestinationSelect = (warehouse: WarehouseRecord) => {
+    setSelectedDestination(warehouse);
+    setDestinationId(String(warehouse.id));
+    setDestinationSearchText(warehouse.name ? `${warehouse.name} - (process_run)` : `Warehouse ${warehouse.id}`);
+    setIsDestinationFocused(false);
+  };
+
+  const handleDestinationChange = (text: string) => {
+    setDestinationSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedDestination(null);
+      setDestinationId('');
+    }
+  };
+
+  const handleProductSelect = (product: ProductRecord) => {
+    setSelectedProduct(product);
+    setProductId(String(product.id));
+    setProductSearchText(product.name ?? `Product ${product.id}`);
+    setIsProductFocused(false);
+  };
+
+  const handleProductChange = (text: string) => {
+    setProductSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedProduct(null);
+      setProductId('');
+    }
+  };
+
+  const handleInstructionSelect = (instruction: InstructionRecord) => {
+    setSelectedInstruction(instruction);
+    setInstructionId(String(instruction.id));
+    setInstructionSearchText(instruction.name ?? `Instruction ${instruction.id}`);
+    setIsInstructionFocused(false);
+  };
+
+  const handleInstructionChange = (text: string) => {
+    setInstructionSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedInstruction(null);
+      setInstructionId('');
+    }
+  };
 
   const handleCreateProcessRunDispatch = async () => {
     if (!sourceId) {
@@ -207,49 +269,221 @@ const InitiateProcessRunScreen = () => {
           showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled"
         >
-          <FormPicker
-            label="Source Warehouse"
-            value={sourceId}
-            onValueChange={setSourceId}
-            items={warehouses.map(w => ({
-              label: w.name ? `${w.name}${w.warehouse_type ? ` - (${w.warehouse_type})` : ''}` : `Warehouse ${w.id}`,
-              value: w.id
-            }))}
-            placeholder="Select source warehouse"
-          />
+          {/* Source Warehouse type-and-search */}
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Source Warehouse</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search source warehouse..."
+              value={sourceSearchText}
+              onChangeText={handleSourceChange}
+              onFocus={() => setIsSourceFocused(true)}
+              onBlur={() => setTimeout(() => setIsSourceFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isSourceFocused || (sourceSearchText && sourceSearchText.trim().length > 0 && !selectedSource)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {warehouses
+                    .filter((w) => {
+                      const displayName = w.name ? `${w.name}${w.warehouse_type ? ` - (${w.warehouse_type})` : ''}` : `Warehouse ${w.id}`;
+                      return displayName.toLowerCase().includes(sourceSearchText.toLowerCase());
+                    })
+                    .slice(0, 25)
+                    .map((w) => {
+                      const displayName = w.name ? `${w.name}${w.warehouse_type ? ` - (${w.warehouse_type})` : ''}` : `Warehouse ${w.id}`;
+                      return (
+                        <TouchableOpacity
+                          key={w.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => {
+                            handleSourceSelect(w);
+                            Keyboard.dismiss();
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text className="text-base text-gray-900">{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {warehouses.filter((w) => {
+                    const displayName = w.name ? `${w.name}${w.warehouse_type ? ` - (${w.warehouse_type})` : ''}` : `Warehouse ${w.id}`;
+                    return displayName.toLowerCase().includes(sourceSearchText.toLowerCase());
+                  }).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">No warehouses found.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <FormPicker
-            label="Destination Warehouse"
-            value={destinationId}
-            onValueChange={setDestinationId}
-            items={processRunWarehouses.map(w => ({
-              label: w.name ? `${w.name} - (process_run)` : `Warehouse ${w.id}`,
-              value: w.id
-            }))}
-            placeholder="Select destination warehouse"
-          />
+          {/* Destination Warehouse type-and-search */}
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Destination Warehouse</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search destination warehouse..."
+              value={destinationSearchText}
+              onChangeText={handleDestinationChange}
+              onFocus={() => setIsDestinationFocused(true)}
+              onBlur={() => setTimeout(() => setIsDestinationFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isDestinationFocused || (destinationSearchText && destinationSearchText.trim().length > 0 && !selectedDestination)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {processRunWarehouses
+                    .filter((w) => {
+                      const displayName = w.name ? `${w.name} - (process_run)` : `Warehouse ${w.id}`;
+                      return displayName.toLowerCase().includes(destinationSearchText.toLowerCase());
+                    })
+                    .slice(0, 25)
+                    .map((w) => {
+                      const displayName = w.name ? `${w.name} - (process_run)` : `Warehouse ${w.id}`;
+                      return (
+                        <TouchableOpacity
+                          key={w.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => {
+                            handleDestinationSelect(w);
+                            Keyboard.dismiss();
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text className="text-base text-gray-900">{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {processRunWarehouses.filter((w) => {
+                    const displayName = w.name ? `${w.name} - (process_run)` : `Warehouse ${w.id}`;
+                    return displayName.toLowerCase().includes(destinationSearchText.toLowerCase());
+                  }).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">No warehouses found.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <FormPicker
-            label="Product"
-            value={productId}
-            onValueChange={setProductId}
-            items={products.map(p => ({
-              label: p.name ?? `Product ${p.id}`,
-              value: p.id
-            }))}
-            placeholder="Select product"
-          />
+          {/* Product type-and-search */}
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Product</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search product..."
+              value={productSearchText}
+              onChangeText={handleProductChange}
+              onFocus={() => setIsProductFocused(true)}
+              onBlur={() => setTimeout(() => setIsProductFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isProductFocused || (productSearchText && productSearchText.trim().length > 0 && !selectedProduct)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {products
+                    .filter((p) => {
+                      const displayName = p.name ?? `Product ${p.id}`;
+                      return displayName.toLowerCase().includes(productSearchText.toLowerCase());
+                    })
+                    .slice(0, 25)
+                    .map((p) => {
+                      const displayName = p.name ?? `Product ${p.id}`;
+                      return (
+                        <TouchableOpacity
+                          key={p.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => {
+                            handleProductSelect(p);
+                            Keyboard.dismiss();
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text className="text-base text-gray-900">{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {products.filter((p) => {
+                    const displayName = p.name ?? `Product ${p.id}`;
+                    return displayName.toLowerCase().includes(productSearchText.toLowerCase());
+                  }).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">No products found.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <FormPicker
-            label="Instruction"
-            value={instructionId}
-            onValueChange={setInstructionId}
-            items={instructions.map(instr => ({
-              label: instr.name ?? `Instruction ${instr.id}`,
-              value: instr.id
-            }))}
-            placeholder="Select instruction"
-          />
+          {/* Instruction type-and-search */}
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-semibold">Instruction</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search instruction..."
+              value={instructionSearchText}
+              onChangeText={handleInstructionChange}
+              onFocus={() => setIsInstructionFocused(true)}
+              onBlur={() => setTimeout(() => setIsInstructionFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isInstructionFocused || (instructionSearchText && instructionSearchText.trim().length > 0 && !selectedInstruction)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {instructions
+                    .filter((instr) => {
+                      const displayName = instr.name ?? `Instruction ${instr.id}`;
+                      return displayName.toLowerCase().includes(instructionSearchText.toLowerCase());
+                    })
+                    .slice(0, 25)
+                    .map((instr) => {
+                      const displayName = instr.name ?? `Instruction ${instr.id}`;
+                      return (
+                        <TouchableOpacity
+                          key={instr.id}
+                          className="p-3 border-b border-gray-100 bg-white"
+                          onPress={() => {
+                            handleInstructionSelect(instr);
+                            Keyboard.dismiss();
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text className="text-base text-gray-900">{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {instructions.filter((instr) => {
+                    const displayName = instr.name ?? `Instruction ${instr.id}`;
+                    return displayName.toLowerCase().includes(instructionSearchText.toLowerCase());
+                  }).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">No instructions found.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
           <TouchableOpacity
             onPress={handleCreateProcessRunDispatch}

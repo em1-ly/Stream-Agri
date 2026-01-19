@@ -7,7 +7,8 @@ import {
   Platform,
   Alert,
   ScrollView,
-  Modal,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { powersync, setupPowerSync } from '@/powersync/system';
 import { useRouter, Stack } from 'expo-router';
@@ -34,8 +35,12 @@ const StackBalesScreen = () => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-  const [warehousePickerVisible, setWarehousePickerVisible] = useState(false);
-  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
+  
+  // Search text states for type-and-search
+  const [warehouseSearchText, setWarehouseSearchText] = useState('');
+  const [locationSearchText, setLocationSearchText] = useState('');
+  const [isWarehouseFocused, setIsWarehouseFocused] = useState(false);
+  const [isLocationFocused, setIsLocationFocused] = useState(false);
 
   useEffect(() => {
     setupPowerSync();
@@ -87,9 +92,14 @@ const StackBalesScreen = () => {
             // does not belong to this warehouse list, reset to default.
             if (!selectedLocation || !rows.some((l) => l.id === selectedLocation.id)) {
               setSelectedLocation(def);
+              // Update location search text when default location is set
+              if (def) {
+                setLocationSearchText(getLocationDisplayName(def, selectedWarehouse));
+              }
             }
           } else {
             setSelectedLocation(null);
+            setLocationSearchText('');
           }
         },
         onError: (err) => {
@@ -132,6 +142,38 @@ const StackBalesScreen = () => {
     return displayName;
   };
 
+  // Handler functions for type-and-search
+  const handleWarehouseSelect = (warehouse: Warehouse) => {
+    setSelectedWarehouse(warehouse);
+    setWarehouseSearchText(getWarehouseDisplayName(warehouse));
+    setIsWarehouseFocused(false);
+    // Reset location when warehouse changes
+    setSelectedLocation(null);
+    setLocationSearchText('');
+  };
+
+  const handleWarehouseChange = (text: string) => {
+    setWarehouseSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedWarehouse(null);
+      setSelectedLocation(null);
+      setLocationSearchText('');
+    }
+  };
+
+  const handleLocationSelect = (location: Location) => {
+    setSelectedLocation(location);
+    setLocationSearchText(getLocationDisplayName(location, selectedWarehouse));
+    setIsLocationFocused(false);
+  };
+
+  const handleLocationChange = (text: string) => {
+    setLocationSearchText(text);
+    if (!text || text.trim().length === 0) {
+      setSelectedLocation(null);
+    }
+  };
+
   const handleStartScanning = () => {
     if (!selectedWarehouse || !selectedLocation) {
       Alert.alert('Missing Info', 'Please select Warehouse and Location before starting scanning.');
@@ -157,7 +199,11 @@ const StackBalesScreen = () => {
       className="flex-1 bg-white"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <ScrollView className="flex-1 p-5" contentContainerStyle={{ paddingBottom: 20 }}>
+      <ScrollView 
+        className="flex-1 p-5" 
+        contentContainerStyle={{ paddingBottom: 20 }}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Header card – styled similar to Odoo wizard */}
         <View className="p-4 bg-[#e6f4ff] rounded-lg border border-[#b3ddff] mb-4">
         
@@ -179,31 +225,126 @@ const StackBalesScreen = () => {
 
         {/* Body card – inputs & action, styled similar to other screens */}
         <View className="bg-white rounded-lg border border-gray-200 p-4">
-          <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
-          <TouchableOpacity
-            className="border border-gray-300 rounded-lg p-3 mb-3 flex-row justify-between items-center bg-gray-50"
-            onPress={() => setWarehousePickerVisible(true)}
-          >
-            <Text className="text-gray-900">
-              {selectedWarehouse ? getWarehouseDisplayName(selectedWarehouse) : 'Select warehouse'}
-            </Text>
-          </TouchableOpacity>
+          {/* Warehouse type-and-search */}
+          <View className="mb-4">
+            <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder="Type to search warehouse..."
+              value={warehouseSearchText}
+              onChangeText={handleWarehouseChange}
+              onFocus={() => setIsWarehouseFocused(true)}
+              onBlur={() => setTimeout(() => setIsWarehouseFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {(isWarehouseFocused || (warehouseSearchText && warehouseSearchText.trim().length > 0 && !selectedWarehouse)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {warehouses
+                    .filter((wh) =>
+                      getWarehouseDisplayName(wh)
+                        .toLowerCase()
+                        .includes(warehouseSearchText.toLowerCase())
+                    )
+                    .slice(0, 25)
+                    .map((wh) => (
+                      <TouchableOpacity
+                        key={wh.id}
+                        className="p-3 border-b border-gray-100 bg-white"
+                        onPress={() => {
+                          handleWarehouseSelect(wh);
+                          Keyboard.dismiss();
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text className="text-base text-gray-900">
+                          {getWarehouseDisplayName(wh)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {warehouses.filter((wh) =>
+                    getWarehouseDisplayName(wh)
+                      .toLowerCase()
+                      .includes(warehouseSearchText.toLowerCase())
+                  ).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">
+                      No warehouses found.
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
-          <Text className="font-semibold text-gray-700 mb-1">Location</Text>
-          <TouchableOpacity
-            className="border border-gray-300 rounded-lg p-3 mb-6 flex-row justify-between items-center bg-gray-50"
-            onPress={() => {
-              if (!selectedWarehouse) {
-                Alert.alert('Select Warehouse', 'Please select a warehouse first.');
-                return;
-              }
-              setLocationPickerVisible(true);
-            }}
-          >
-            <Text className="text-gray-900">
-              {selectedLocation ? getLocationDisplayName(selectedLocation, selectedWarehouse) : 'Select location'}
-            </Text>
-          </TouchableOpacity>
+          {/* Location type-and-search */}
+          <View className="mb-6">
+            <Text className="font-semibold text-gray-700 mb-1">Location</Text>
+            <TextInput
+              className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
+              placeholderTextColor="#9CA3AF"
+              style={{ color: '#111827' }}
+              placeholder={selectedWarehouse ? "Type to search location..." : "Select warehouse first"}
+              value={locationSearchText}
+              onChangeText={handleLocationChange}
+              onFocus={() => {
+                if (!selectedWarehouse) {
+                  Alert.alert('Select Warehouse', 'Please select a warehouse first.');
+                  return;
+                }
+                setIsLocationFocused(true);
+              }}
+              onBlur={() => setTimeout(() => setIsLocationFocused(false), 100)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!!selectedWarehouse}
+            />
+            {selectedWarehouse && (isLocationFocused || (locationSearchText && locationSearchText.trim().length > 0 && !selectedLocation)) && (
+              <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled={true}
+                >
+                  {locations
+                    .filter((loc) =>
+                      getLocationDisplayName(loc, selectedWarehouse)
+                        .toLowerCase()
+                        .includes(locationSearchText.toLowerCase())
+                    )
+                    .slice(0, 25)
+                    .map((loc) => (
+                      <TouchableOpacity
+                        key={loc.id}
+                        className="p-3 border-b border-gray-100 bg-white"
+                        onPress={() => {
+                          handleLocationSelect(loc);
+                          Keyboard.dismiss();
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text className="text-base text-gray-900">
+                          {getLocationDisplayName(loc, selectedWarehouse)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {locations.filter((loc) =>
+                    getLocationDisplayName(loc, selectedWarehouse)
+                      .toLowerCase()
+                      .includes(locationSearchText.toLowerCase())
+                  ).length === 0 && (
+                    <Text className="text-gray-500 text-center py-3">
+                      No locations found.
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
 
           <TouchableOpacity
             onPress={handleStartScanning}
@@ -212,91 +353,6 @@ const StackBalesScreen = () => {
             <Text className="text-white font-bold text-lg">Start Scanning</Text>
           </TouchableOpacity>
         </View>
-
-        {/* Warehouse picker */}
-        <Modal
-          visible={warehousePickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setWarehousePickerVisible(false)}
-        >
-          <View className="flex-1 justify-end bg-black/40">
-            <View className="bg-white rounded-t-2xl max-h-[60%] p-4">
-              <Text className="text-lg font-bold text-[#65435C] mb-3">Select Warehouse</Text>
-              <ScrollView>
-                {warehouses.map((wh) => (
-                  <TouchableOpacity
-                    key={wh.id}
-                    className="py-3 border-b border-gray-200"
-                    onPress={() => {
-                      setSelectedWarehouse(wh);
-                      setWarehousePickerVisible(false);
-                    }}
-                  >
-                    <Text className="text-base text-gray-900">
-                      {getWarehouseDisplayName(wh)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {warehouses.length === 0 && (
-                  <Text className="text-gray-500 text-center py-4">
-                    No warehouses synced from Odoo yet.
-                  </Text>
-                )}
-              </ScrollView>
-              <TouchableOpacity
-                className="mt-3 py-3 rounded-xl bg-gray-200 items-center"
-                onPress={() => setWarehousePickerVisible(false)}
-              >
-                <Text className="text-gray-800 font-semibold">Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Location picker */}
-        <Modal
-          visible={locationPickerVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setLocationPickerVisible(false)}
-        >
-          <View className="flex-1 justify-end bg-black/40">
-            <View className="bg-white rounded-t-2xl max-h-[60%] p-4">
-              <Text className="text-lg font-bold text-[#65435C] mb-3">
-                Select Location ({getWarehouseDisplayName(selectedWarehouse)})
-              </Text>
-              <ScrollView>
-                {locations.map((loc) => (
-                  <TouchableOpacity
-                    key={loc.id}
-                    className="py-3 border-b border-gray-200"
-                    onPress={() => {
-                      setSelectedLocation(loc);
-                      setLocationPickerVisible(false);
-                    }}
-                  >
-                    <Text className="text-base text-gray-900">
-                      {getLocationDisplayName(loc, selectedWarehouse)}
-                      
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {locations.length === 0 && (
-                  <Text className="text-gray-500 text-center py-4">
-                    No locations found for this warehouse.
-                  </Text>
-                )}
-              </ScrollView>
-              <TouchableOpacity
-                className="mt-3 py-3 rounded-xl bg-gray-200 items-center"
-                onPress={() => setLocationPickerVisible(false)}
-              >
-                <Text className="text-gray-800 font-semibold">Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
 
       </ScrollView>
     </KeyboardAvoidingView>

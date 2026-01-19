@@ -179,7 +179,7 @@ const ScanBalesScreen = () => {
   const _validateShippedBaleForDispatch = async (shippedBale: any, code: string, noteIdsToMatch: string[], actualDispatchNoteId: string) => {
     // 1) Find ANY existing records for this bale ID in the local database
     const localLines = await powersync.getAll<any>(
-      `SELECT db.id, db.dispatch_note_id, db.state, dn.reference as dispatch_note_reference
+      `SELECT db.id, db.dispatch_note_id, db.state, dn.reference as dispatch_note_reference, dn.state as dispatch_note_state
        FROM warehouse_dispatch_bale db
        LEFT JOIN warehouse_dispatch_note dn ON (db.dispatch_note_id = dn.id OR db.dispatch_note_id = dn.mobile_app_id)
        WHERE db.shipped_bale_id = ? OR db.barcode = ? OR db.logistics_barcode = ?`,
@@ -189,25 +189,57 @@ const ScanBalesScreen = () => {
     console.log('🔍 Local validation check - existing records found:', localLines.length);
     if (localLines.length > 0) {
       console.log('🔍 Local validation check - existing records details:', JSON.stringify(localLines));
+      // Debug: log each record's state
+      localLines.forEach((l, idx) => {
+        console.log(`🔍 Record ${idx}: dispatch_note_id=${l.dispatch_note_id}, line_state=${l.state}, dispatch_note_state=${l.dispatch_note_state}, reference=${l.dispatch_note_reference}`);
+      });
     }
 
-    // 2) Check for ANY existing record that is not cancelled
-    const existingRecord = localLines.find(l => l.state !== 'cancel');
-    if (existingRecord) {
-      const lineNoteId = String(existingRecord.dispatch_note_id);
+    // 2) Check for existing record in another draft dispatch note (only block if in draft, not posted)
+    // IMPORTANT: Only block if we can confirm the dispatch note is draft. If state is NULL/empty, allow (might be posted but not synced)
+    const existingRecord = localLines.find(l => {
+      const lineNoteId = String(l.dispatch_note_id);
       const isCurrent = noteIdsToMatch.includes(lineNoteId);
       
-      const msg = isCurrent
-        ? `Product '${code}' is already in this dispatch note!`
-        : `Product '${code}' is already dispatched in note ${existingRecord.dispatch_note_reference || existingRecord.dispatch_note_id}!`;
+      // Skip if already in current note or line is cancelled
+      if (isCurrent || l.state === 'cancel') {
+        return false;
+      }
+      
+      // Only block if we have a confirmed draft state
+      const dispatchNoteState = (l.dispatch_note_state || '').trim().toLowerCase();
+      const shouldBlock = dispatchNoteState === 'draft';
+      
+      console.log(`🔍 Validation check for line ${l.id}: isCurrent=${isCurrent}, lineState=${l.state}, dispatchNoteState="${dispatchNoteState}", shouldBlock=${shouldBlock}`);
+      return shouldBlock;
+    });
+    
+    if (existingRecord) {
+      const lineNoteId = String(existingRecord.dispatch_note_id);
+      
+      const msg = `Product '${code}' is already dispatched in DRAFT note ${existingRecord.dispatch_note_reference || existingRecord.dispatch_note_id}! (v1.0.3)`;
         
-      console.log('🚨 Scan bale validation error: existing record found', { isCurrent, code, noteId: lineNoteId, state: existingRecord.state });
+      console.log('🚨 Scan bale validation error: existing record found in draft dispatch note', { code, noteId: lineNoteId, dispatchNoteState: existingRecord.dispatch_note_state, version: '1.0.3' });
       setMessage(msg);
       setIsSaving(false);
       return false;
     }
 
-    // 3) Check pending uploads (ps_crud)
+    // 3) Check if bale is already in current dispatch note
+    const existingInCurrent = localLines.find(l => {
+      const lineNoteId = String(l.dispatch_note_id);
+      return noteIdsToMatch.includes(lineNoteId);
+    });
+    
+    if (existingInCurrent) {
+      const msg = `Product '${code}' is already in this dispatch note!`;
+      console.log('🚨 Scan bale validation error: already in current dispatch note', { code });
+      setMessage(msg);
+      setIsSaving(false);
+      return false;
+    }
+
+    // 4) Check pending uploads (ps_crud)
     if (shippedBale.id) {
       try {
         const baleId = String(shippedBale.id);

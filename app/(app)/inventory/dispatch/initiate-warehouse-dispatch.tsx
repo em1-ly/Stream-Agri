@@ -121,12 +121,6 @@ const InitiateWarehouseDispatchScreen = () => {
     setDestinationId(String(warehouse.id));
     setDestinationSearchText(getWarehouseDisplayName(warehouse));
     setIsDestinationFocused(false);
-    // Reset instruction when destination changes
-    if (instructionId) {
-      setInstructionId('');
-      setSelectedInstruction(null);
-      setInstructionSearchText('');
-    }
   };
 
   const handleDestinationChange = (text: string) => {
@@ -134,12 +128,6 @@ const InitiateWarehouseDispatchScreen = () => {
     if (selectedDestination && text !== getWarehouseDisplayName(selectedDestination)) {
       setSelectedDestination(null);
       setDestinationId('');
-      // Reset instruction when destination changes
-      if (instructionId) {
-        setInstructionId('');
-        setSelectedInstruction(null);
-        setInstructionSearchText('');
-      }
     }
   };
 
@@ -149,12 +137,6 @@ const InitiateWarehouseDispatchScreen = () => {
     setProductId(String(product.id));
     setProductSearchText(product.name ?? `Product ${product.id}`);
     setIsProductFocused(false);
-    // Reset instruction when product changes
-    if (instructionId) {
-      setInstructionId('');
-      setSelectedInstruction(null);
-      setInstructionSearchText('');
-    }
   };
 
   const handleProductChange = (text: string) => {
@@ -162,12 +144,6 @@ const InitiateWarehouseDispatchScreen = () => {
     if (selectedProduct && text !== (selectedProduct.name ?? `Product ${selectedProduct.id}`)) {
       setSelectedProduct(null);
       setProductId('');
-      // Reset instruction when product changes
-      if (instructionId) {
-        setInstructionId('');
-        setSelectedInstruction(null);
-        setInstructionSearchText('');
-      }
     }
   };
 
@@ -187,31 +163,13 @@ const InitiateWarehouseDispatchScreen = () => {
     }
   };
 
-  // Get filtered instructions based on product and destination
+  // Get filtered instructions - show all posted instructions
   const getFilteredInstructions = (): InstructionRecord[] => {
-    if (!productId || !destinationId) {
-      return [];
-    }
     return instructions.filter((i: any) => 
       i.status === 'posted' && 
-      i.is_exhausted === 0 &&
-      String(i.product_id) === String(productId) &&
-      String(i.destination_warehouse_id) === String(destinationId)
+      i.is_exhausted === 0
     );
   };
-
-  useEffect(() => {
-    // Reset instruction if product or destination changes and current instruction is no longer valid
-    if (instructionId) {
-      const filtered = getFilteredInstructions();
-      const isValid = filtered.some((i: any) => String(i.id) === String(instructionId));
-      if (!isValid) {
-        setInstructionId('');
-        setSelectedInstruction(null);
-        setInstructionSearchText('');
-      }
-    }
-  }, [productId, destinationId, instructions, instructionId]);
 
   const handleCreateDispatch = async () => {
     Keyboard.dismiss();
@@ -487,22 +445,15 @@ const InitiateWarehouseDispatchScreen = () => {
             className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
             placeholderTextColor="#9CA3AF"
             style={{ color: '#111827' }}
-            placeholder={!productId || !destinationId ? "Select Product & Destination first" : "Type to search shipment instruction..."}
+            placeholder="Type to search shipment instruction..."
             value={instructionSearchText}
             onChangeText={handleInstructionChange}
-            onFocus={() => {
-              if (!productId || !destinationId) {
-                Alert.alert('Select Product & Destination', 'Please select Product and Destination first.');
-                return;
-              }
-              setIsInstructionFocused(true);
-            }}
+            onFocus={() => setIsInstructionFocused(true)}
             onBlur={() => setTimeout(() => setIsInstructionFocused(false), 100)}
             autoCapitalize="none"
             autoCorrect={false}
-            editable={!!productId && !!destinationId}
           />
-          {productId && destinationId && (isInstructionFocused || (instructionSearchText && instructionSearchText.trim().length > 0 && !selectedInstruction)) && (
+          {(isInstructionFocused || (instructionSearchText && instructionSearchText.trim().length > 0 && !selectedInstruction)) && (
             <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
               <ScrollView 
                 keyboardShouldPersistTaps="handled"

@@ -2283,11 +2283,11 @@ export class Connector implements PowerSyncBackendConnector {
           // Always include mobile user info for all update operations
           // Exception: floor_dispatch_note and warehouse_dispatch_note models don't accept mobile_user_id/mobile_user_name
           if (tableName !== 'floor_dispatch_note' && tableName !== 'warehouse_dispatch_note') {
-            if (mobileUserId) {
-              newRecordDataToSend['mobile_user_id'] = Number(mobileUserId);
-            }
-            if (mobileUserName) {
-              newRecordDataToSend['mobile_user_name'] = mobileUserName;
+          if (mobileUserId) {
+            newRecordDataToSend['mobile_user_id'] = Number(mobileUserId);
+          }
+          if (mobileUserName) {
+            newRecordDataToSend['mobile_user_name'] = mobileUserName;
             }
           }
 

@@ -290,12 +290,25 @@ const ScanBalesScreen = () => {
       }
 
       // 4) Check the 'dispatched' flag on warehouse_shipped_bale
+      // Only block if dispatched AND not in a posted dispatch note (posted notes allow re-dispatch)
       if (shippedBale.dispatched === 1) {
-        const msg = `Product '${code}' is already dispatched on the server!`;
-        console.log('🚨 Scan bale validation error: dispatched flag is 1', { code, baleId: shippedBale.id });
-        setMessage(msg);
-        setIsSaving(false);
-        return false;
+        // Check if this bale is in a posted dispatch note - if so, allow re-dispatch
+        const inPostedNote = localLines.some(l => {
+          const lineNoteId = String(l.dispatch_note_id);
+          const isCurrent = noteIdsToMatch.includes(lineNoteId);
+          const dispatchNoteState = (l.dispatch_note_state || '').trim().toLowerCase();
+          return !isCurrent && dispatchNoteState === 'posted';
+        });
+        
+        if (!inPostedNote) {
+          const msg = `Product '${code}' is already dispatched on the server!`;
+          console.log('🚨 Scan bale validation error: dispatched flag is 1 and not in posted note', { code, baleId: shippedBale.id });
+          setMessage(msg);
+          setIsSaving(false);
+          return false;
+        } else {
+          console.log('✅ Bale is dispatched but in posted note - allowing re-dispatch', { code, baleId: shippedBale.id });
+        }
       }
     }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, SafeAreaView, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 // Safe storage wrapper: falls back to in-memory store if native module is unavailable
@@ -356,6 +356,10 @@ const SequencingScannerScreen = () => {
           headerShown: false,
         }}
       />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
       <View className="flex-1 p-4">
         {/* Custom header that routes back to Receiving menu */}
         <View className="flex-row items-center justify-between mb-2 bg-white rounded-2xl px-4 py-3">
@@ -375,7 +379,7 @@ const SequencingScannerScreen = () => {
           </TouchableOpacity>
         </View>
 
-        <ScrollView className="flex-1 bg-white rounded-2xl p-5 mt-2">
+          <ScrollView className="flex-1 bg-white rounded-2xl p-5 mt-2" keyboardShouldPersistTaps="handled">
           {/* Sale Configuration (sticky config fields that persist during scanning) */}
           <View className="mb-6 p-4 bg-gray-50 rounded-lg">
             <View className="flex-row justify-between items-center mb-3">
@@ -546,6 +550,7 @@ const SequencingScannerScreen = () => {
           )}
         </ScrollView>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };

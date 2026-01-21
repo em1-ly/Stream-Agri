@@ -21,8 +21,8 @@ interface BarcodeScannerProps {
 }
 
 export default function BarcodeScanner({ 
-  scanType = 'document', 
-  onBarcodeScanned, 
+  scanType = 'document',
+  onBarcodeScanned,
   onClose,
   title,
   subtitle,
@@ -98,16 +98,17 @@ export default function BarcodeScanner({
     getCameraPermissions();
   }, []);
 
-  // Approximate auto-zoom: gradually increase zoom while scanning and nothing is highlighted
+  // Approximate auto-zoom: gently increase zoom while scanning, but only up to a safe level
   useEffect(() => {
     if (hasPermission !== true) return;
 
     let interval: any;
-    // Only auto-zoom while we are actively scanning and don't yet have a highlighted result
-    if (!highlightedBarcode && !scanError) {
+    // Only auto-zoom while we are actively scanning, don't yet have a highlighted result,
+    // and zoom is below a sensible cap (to avoid over-zooming which makes codes unreadable).
+    if (!highlightedBarcode && !scanError && zoom < 0.5) {
       interval = setInterval(() => {
         setZoom((current) => {
-          const next = Math.min(0.8, current + 0.05); // cap zoom to avoid extreme grain
+          const next = Math.min(0.5, current + 0.03); // softer step and lower max zoom
           return next;
         });
       }, 1000); // every second

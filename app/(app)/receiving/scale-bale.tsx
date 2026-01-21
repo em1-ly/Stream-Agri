@@ -781,11 +781,12 @@ const ScaleBaleScreen = () => {
       const newRowBales = currentRowBales + 1;
       setCurrentRowBales(newRowBales);
 
+      // Keep the current row and lay until the user changes them explicitly.
+      // When capacity is reached, just log it and show a message instead of auto-incrementing the row.
       if (newRowBales >= rowCapacity) {
         const currentRowNum = parseInt(row, 10) || 0;
-        setRow((currentRowNum + 1).toString());
-        setCurrentRowBales(0);
-        console.log(`Row ${currentRowNum} is full! Moving to Row ${currentRowNum + 1}`);
+        console.log(`Row ${currentRowNum} has reached capacity (${newRowBales}/${rowCapacity}). Waiting for user to change row/lay if desired.`);
+        setResultMessage(`Row ${currentRowNum} has reached its capacity of ${rowCapacity} bales. You can continue scanning in this row or change the row/lay manually.`);
       } else {
         console.log('Bale scanned (offline).');
       }

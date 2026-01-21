@@ -109,10 +109,14 @@ export default function ValidateTDLineScreen() {
       return;
     }
 
-    // Local validation 2: Check header state (must be 'checked')
+    // Local validation 2: Check header state (must be 'checked' or 'closed')
     const headerState = (header?.state || '').toLowerCase();
-    if (headerState !== 'checked') {
-      Alert.alert('Cannot Validate', 'Validation is only allowed when the delivery note is in "checked" state. Please ensure the delivery note is checked first.');
+    const isHeaderStateAllowed = headerState === 'checked' || headerState === 'closed';
+    if (!isHeaderStateAllowed) {
+      Alert.alert(
+        'Cannot Validate',
+        'Validation is only allowed when the delivery note is in "checked" or "closed" state. Please ensure the delivery note is checked or closed first.'
+      );
       return;
     }
 
@@ -288,15 +292,23 @@ export default function ValidateTDLineScreen() {
               </View>
 
               <TouchableOpacity
-                className={`${isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
+                className={`${isValidated || !((header?.state || '').toLowerCase() === 'checked' || (header?.state || '').toLowerCase() === 'closed') || validating ? 'bg-gray-400' : 'bg-green-600'} p-4 rounded-lg items-center mb-4`}
                 onPress={handleValidate}
-                disabled={isValidated || (header?.state || '').toLowerCase() !== 'checked' || validating}
+                disabled={
+                  isValidated ||
+                  !((header?.state || '').toLowerCase() === 'checked' || (header?.state || '').toLowerCase() === 'closed') ||
+                  validating
+                }
               >
                 {validating ? (
                   <ActivityIndicator color="white" />
                 ) : (
                   <Text className="text-white font-bold">
-                    {isValidated ? 'Validated' : (header?.state || '').toLowerCase() !== 'checked' ? 'Validate (Book first)' : 'Validate Line'}
+                    {isValidated
+                      ? 'Validated'
+                      : !((header?.state || '').toLowerCase() === 'checked' || (header?.state || '').toLowerCase() === 'closed')
+                        ? 'Validate (Check/Close first)'
+                        : 'Validate Line'}
                   </Text>
                 )}
               </TouchableOpacity>

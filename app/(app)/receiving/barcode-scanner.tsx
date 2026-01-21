@@ -717,10 +717,20 @@ export default function BarcodeScannerScreen() {
   };
 
   const handleClose = () => {
-    // For scale-bale, all scanning and saving is handled on this camera screen.
-    // When closing, just go back without sending a barcode so Scale Bale doesn't auto-process again.
+    // For scale-bale, navigate explicitly back to Scale Bale, preserving context params,
+    // instead of relying on router.back (which may go to Sequencing Scanner).
     if (returnTo === 'scale-bale') {
-      router.back();
+      router.replace({
+        pathname: '/receiving/scale-bale',
+        params: {
+          // Preserve row/lay and warehouse context
+          row: (params.row as string) || '',
+          lay: (params.lay as string) || '',
+          selling_point_id: (params.selling_point_id as string) || '',
+          floor_sale_id: (params.floor_sale_id as string) || '',
+          // Do NOT pass scannedBarcode here, to avoid auto-processing on return
+        },
+      });
       return;
     }
     router.back();

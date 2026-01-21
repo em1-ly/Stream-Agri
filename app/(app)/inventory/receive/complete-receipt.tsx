@@ -214,7 +214,7 @@ const CompleteReceiptScreen = () => {
         <View className="bg-white rounded-lg border border-gray-200 p-4">
           {/* Warehouse type-and-search */}
           <View className="mb-4">
-            <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
+          <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
             <TextInput
               className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
               placeholderTextColor="#9CA3AF"
@@ -241,20 +241,20 @@ const CompleteReceiptScreen = () => {
                     )
                     .slice(0, 25)
                     .map((wh) => (
-                      <TouchableOpacity
-                        key={wh.id}
+                  <TouchableOpacity
+                    key={wh.id}
                         className="p-3 border-b border-gray-100 bg-white"
-                        onPress={() => {
+                    onPress={() => {
                           handleWarehouseSelect(wh);
                           Keyboard.dismiss();
-                        }}
+                    }}
                         activeOpacity={0.7}
-                      >
-                        <Text className="text-base text-gray-900">
-                          {getWarehouseDisplayName(wh)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                  >
+                    <Text className="text-base text-gray-900">
+                      {getWarehouseDisplayName(wh)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
                   {warehouses.filter((wh) =>
                     getWarehouseDisplayName(wh)
                       .toLowerCase()
@@ -262,10 +262,10 @@ const CompleteReceiptScreen = () => {
                   ).length === 0 && (
                     <Text className="text-gray-500 text-center py-3">
                       No warehouses found.
-                    </Text>
-                  )}
-                </ScrollView>
-              </View>
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
             )}
           </View>
 
@@ -305,21 +305,21 @@ const CompleteReceiptScreen = () => {
                     )
                     .slice(0, 25)
                     .map((loc) => (
-                      <TouchableOpacity
-                        key={loc.id}
+                  <TouchableOpacity
+                    key={loc.id}
                         className="p-3 border-b border-gray-100 bg-white"
-                        onPress={() => {
+                    onPress={() => {
                           handleLocationSelect(loc);
                           Keyboard.dismiss();
-                        }}
+                    }}
                         activeOpacity={0.7}
-                      >
-                        <Text className="text-base text-gray-900">
-                          {getLocationDisplayName(loc, selectedWarehouse)}
-                          {loc.default_location ? '  (Default)' : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                  >
+                    <Text className="text-base text-gray-900">
+                      {getLocationDisplayName(loc, selectedWarehouse)}
+                      {loc.default_location ? '  (Default)' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
                   {locations.filter((loc) =>
                     getLocationDisplayName(loc, selectedWarehouse)
                       .toLowerCase()
@@ -327,20 +327,20 @@ const CompleteReceiptScreen = () => {
                   ).length === 0 && (
                     <Text className="text-gray-500 text-center py-3">
                       No locations found.
-                    </Text>
-                  )}
-                </ScrollView>
+                  </Text>
+                )}
+              </ScrollView>
               </View>
             )}
           </View>
 
-          <TouchableOpacity
+              <TouchableOpacity
             onPress={handleStartScanning}
             className="bg-[#65435C] p-4 rounded-lg items-center justify-center"
-          >
+              >
             <Text className="text-white font-bold text-lg">Start Scanning</Text>
-          </TouchableOpacity>
-        </View>
+              </TouchableOpacity>
+            </View>
       </ScrollView>
     </KeyboardAvoidingView>
     </>

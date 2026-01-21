@@ -1383,19 +1383,19 @@ const ScaleBaleScreen = () => {
               placeholder="Scan or enter bale barcode"
               placeholderTextColor="#9CA3AF"
               style={{ color: '#111827' }}
-              value={scaleBarcode}
-              onChangeText={setScaleBarcode}
-            />
-            <TouchableOpacity 
+          value={scaleBarcode} 
+          onChangeText={setScaleBarcode}
+        />
+          <TouchableOpacity
               className="bg-[#65435C] rounded-lg p-3 ml-2 justify-center" 
               onPress={() => {
                 Keyboard.dismiss();
                 handleOpenScanner();
               }}
-              disabled={isProcessing}
+            disabled={isProcessing}
             >
               <Camera color="white" size={20} />
-            </TouchableOpacity>
+          </TouchableOpacity>
           </View>
         </View>
 

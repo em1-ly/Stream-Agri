@@ -131,8 +131,8 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
 
   const handleClearDataAndResync = async () => {
     Alert.alert(
-      'Clear Data & Resync',
-      'This will clear all local data and force a fresh sync on next login. Are you sure?',
+      'Clear Data & Resyncie',
+      'This will clear ALL local data including server configuration, sessions, and database. You will need to reconfigure the server on next login. Are you sure?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -146,19 +146,61 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
               // Disconnect PowerSync
               await powersync.disconnect();
               
-              // Clear SecureStore data
-              await SecureStore.deleteItemAsync('session');
-              await SecureStore.deleteItemAsync('odoo_employee_id');
-              await SecureStore.deleteItemAsync('odoo_employee_name');
-              await SecureStore.deleteItemAsync('odoo_custom_session_id');
-              await SecureStore.deleteItemAsync('employee_jwt');
+              // Clear ALL SecureStore data - comprehensive list
+              const secureStoreKeys = [
+                'session',
+                'odoo_employee_id',
+                'odoo_employee_name',
+                'odoo_custom_session_id',
+                'employee_jwt',
+                'odoo_server_ip',           // Server configuration
+                'odoo_database',            // Database name
+                'power_sync_uri',           // PowerSync URI
+                'odoo_admin_session_id',    // Admin session
+                'odoo_session_id',          // Session ID
+                'powersync_private_key',    // PowerSync keys
+                'powersync_jwk',            // PowerSync JWK
+                'powersync_public_key',     // PowerSync public key
+              ];
               
-              // Clear PowerSync database tables (especially hr_employee to force resync)
-              await powersync.execute('DELETE FROM hr_employee');
+              // Delete all SecureStore items
+              for (const key of secureStoreKeys) {
+                try {
+                  await SecureStore.deleteItemAsync(key);
+                } catch (error) {
+                  // Ignore errors for keys that don't exist
+                  console.log(`Key ${key} not found or already deleted`);
+                }
+              }
+              
+              // Clear local state
+              setServerIP('');
+              setDatabase('odoo_db2');
+              setAdminUsername('');
+              setAdminPassword('');
+              setPowerSyncURI('');
+              
+              // Clear PowerSync database - delete all synced data
+              try {
+                // Get all table names and clear them (except system tables)
+                const tables = await powersync.getAll<{ name: string }>(
+                  "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'ps_%'"
+                );
+                
+                for (const table of tables || []) {
+                  try {
+                    await powersync.execute(`DELETE FROM ${table.name}`);
+                  } catch (error) {
+                    console.log(`Could not clear table ${table.name}:`, error);
+                  }
+                }
+              } catch (error) {
+                console.error('Error clearing PowerSync database:', error);
+              }
               
               Alert.alert(
                 'Success',
-                'Data cleared successfully. You can now login to resync.',
+                'All data cleared successfully. Please reconfigure server settings on next login.',
                 [{ text: 'OK' }]
               );
               
@@ -387,14 +429,14 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
               </TouchableOpacity>
             </View>
           </View>
-
+        
           <TouchableOpacity 
             className="mt-4 rounded-md border-2 border-red-500 p-2" 
             onPress={handleClearDataAndResync}
             disabled={isLoggingIn}
           >
             <Text className="text-red-500 text-center">
-              Clear Data & Resync
+              Clear Data & Resyncie
             </Text>
           </TouchableOpacity>
 

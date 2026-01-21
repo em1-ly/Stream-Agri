@@ -55,7 +55,8 @@ target 'TobaccoLogistics' do
     # Exclude expo-dev-menu from Release builds (App Store distribution)
     # For production builds, we need to completely skip building expo-dev-menu
     installer.pods_project.targets.each do |target|
-      if target.name == 'expo-dev-menu' || target.name.start_with?('expo-dev-menu') || target.name == 'expo-dev-client'
+ 
+      if target.name == 'expo-dev-menu' || target.name.start_with?('expo-dev-menu') || target.name == 'expo-dev-client' || target.name == 'expo-dev-menu-interface' || target.name.start_with?('expo-dev-menu-interface')
         target.build_configurations.each do |config|
           if config.name == 'Release'
             # Completely disable building this target for Release builds
@@ -81,9 +82,13 @@ target 'TobaccoLogistics' do
           if config.name == 'Release'
             # Remove expo-dev-menu from linker flags
             if config.build_settings['OTHER_LDFLAGS']
-              config.build_settings['OTHER_LDFLAGS'] = config.build_settings['OTHER_LDFLAGS'].reject do |flag|
-                flag.to_s.include?('expo-dev-menu') || flag.to_s.include?('expo-dev-client')
+              flags = config.build_settings['OTHER_LDFLAGS']
+              # Handle both string and array formats
+              flags_array = flags.is_a?(Array) ? flags : flags.to_s.split(' ')
+              filtered_flags = flags_array.reject do |flag|
+                flag.to_s.include?('expo-dev-menu') || flag.to_s.include?('expo-dev-client') || flag.to_s.include?('expo-dev-menu-interface')
               end
+              config.build_settings['OTHER_LDFLAGS'] = filtered_flags
             end
           end
         end

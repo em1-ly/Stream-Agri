@@ -142,10 +142,17 @@ export default function BarcodeScanner({
             normalizedValue = extracted.trim();
             // Continue to validate the extracted barcode below
           }
-        }
+      }
       } catch (e) {
         // Not valid JSON, continue to regular detection
       }
+    }
+
+    // 0b) Strip leading/trailing asterisks for Code 39 style barcodes
+    // Many scanners (or QR payloads) include *START/STOP* chars, e.g. *123456789X*.
+    // The actual data for Mod43 is the inner 10 characters.
+    if (normalizedValue.length >= 3 && normalizedValue.startsWith('*') && normalizedValue.endsWith('*')) {
+      normalizedValue = normalizedValue.substring(1, normalizedValue.length - 1).trim();
     }
 
     const length = normalizedValue.length;
@@ -193,15 +200,12 @@ export default function BarcodeScanner({
 
   const handleDetectedCode = async (type: string, value: string) => {
     if (isScanning) return; // Prevent multiple scans
-    
-    // Stability check: require the same value twice to prevent phantom/accidental scans
-    if (value !== lastDetectedValue) {
-      setLastDetectedValue(value);
-      return;
-    }
-    
+    // Always accept the first stable read for all scan types (document + bale)
+    // to maximize speed. We still debounce via isScanning so we don't process
+    // multiple times for the same frame.
+    setLastDetectedValue(null);
+
     setIsScanning(true);
-    setLastDetectedValue(null); // Reset for next session
     
     // Automatically detect and validate barcode format based on content
     const { isValid, validationError, normalizedValue } = detectAndValidateBarcode(type, value);
@@ -242,7 +246,7 @@ export default function BarcodeScanner({
         setTimeout(() => {
           setIsScanning(false);
           setHighlightedBarcode(null);
-      }, 1000); 
+      }, 500); 
       }
   };
 
@@ -343,7 +347,10 @@ export default function BarcodeScanner({
         enableTorch={torchOn}
         onBarcodeScanned={(scanned && !stayOnCamera) ? undefined : ({ type, data }) => handleDetectedCode((type || '').toLowerCase(), data || '')}
         barcodeScannerSettings={{
-          barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'codabar', 'upc_a', 'upc_e', 'pdf417']
+          // Receiving mainly uses CTL Code39 barcodes plus QR codes that
+          // contain the same value, and some flows use Code128. Limiting
+          // the symbologies here improves performance and reduces false reads.
+          barcodeTypes: ['qr', 'code39', 'code128']
         }}
       >
         <View className="flex-1">

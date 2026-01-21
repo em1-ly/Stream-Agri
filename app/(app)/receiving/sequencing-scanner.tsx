@@ -52,7 +52,7 @@ const FormInput = ({ label, value, onChangeText, placeholder }: {
         placeholderTextColor="#9CA3AF"
         style={{ color: '#111827' }}
       />
-    </View>
+      </View>
 );
 
 const SequencingScannerScreen = () => {

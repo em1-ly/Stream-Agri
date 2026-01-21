@@ -6,11 +6,21 @@ import { useSession } from '@/authContext'
 import { forceRunImageUploadService } from '@/utils/imageUploadService'
 import { powersync } from '@/powersync/system'
 import SyncLogs from './SyncLogs'
+import Constants from 'expo-constants'
 
 const Settings = () => {
   const { signOut } = useSession()
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [password, setPassword] = useState('')
+  const appVersion = Constants.expoConfig?.version || 'unknown'
+  const buildNumber =
+    (Constants.expoConfig as any)?.ios?.buildNumber ||
+    (Constants.manifest2 as any)?.extra?.eas?.buildNumber ||
+    'unknown'
+  const buildDate =
+    (Constants.manifest2 as any)?.createdAt ||
+    (Constants.manifest as any)?.publishedTime ||
+    'unknown'
 
   // Trigger image upload check when settings screen is focused
   useFocusEffect(
@@ -88,6 +98,16 @@ const Settings = () => {
           </View>
 
         <SyncLogs />
+
+        {/* App version & build info */}
+        <View className="mt-4 mb-2 rounded-xl bg-white/10 border border-white/20 p-3">
+          <Text className="text-xs text-white opacity-80">
+            Version: <Text className="font-semibold">{appVersion}</Text> (build {buildNumber})
+          </Text>
+          <Text className="text-xs text-white opacity-60 mt-1">
+            Updated: {buildDate}
+          </Text>
+        </View>
 
         <View className="flex-1 justify-end mb-4">
              <TouchableOpacity onPress={handleDbExport} className='bg-white rounded-xl p-2'>

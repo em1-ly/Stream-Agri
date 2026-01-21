@@ -65,6 +65,11 @@
       }
     },
     "owner": "emiliachipidza",
-    "runtimeVersion": "1.0.0"
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/4874d33f-e492-4895-9c63-4bf6b360725a",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    }
   }
 }

@@ -214,7 +214,7 @@ const InitiateDispatchScreen = () => {
     if (selectedDriver && text !== (selectedDriver.name || `Driver ${selectedDriver.id}`)) {
       setSelectedDriver(null);
       setSelectedDriverId('');
-      setIsAddingNewDriver(false);
+    setIsAddingNewDriver(false);
     }
   };
 
@@ -400,7 +400,7 @@ const InitiateDispatchScreen = () => {
             className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
             placeholderTextColor="#9CA3AF"
             style={{ color: '#111827' }}
-            placeholder="Type to search product..."
+          placeholder="Type to search product..."
             value={productSearchText}
             onChangeText={handleProductChange}
             autoCapitalize="none"
@@ -513,7 +513,7 @@ const InitiateDispatchScreen = () => {
                     )}
                   </ScrollView>
                 </View>
-              )}
+            )}
             </View>
 
             <FormInput label="Truck Reg Number" value={truckReg} onChangeText={setTruckReg} placeholder="Enter truck registration" />

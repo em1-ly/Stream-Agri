@@ -617,28 +617,28 @@ const DispatchNoteDetailScreen = () => {
                   />
                   {(isTransportFocused || (transportSearchText && transportSearchText.trim().length > 0 && !selectedTransport && !isAddingNewTransporter)) && (
                     <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
-                      <ScrollView
+                      <ScrollView 
                         keyboardShouldPersistTaps="handled"
                         nestedScrollEnabled={true}
                       >
                         {/* Add New Transporter option */}
                         {transportSearchText.trim().length > 0 && (
-                          <TouchableOpacity
-                            className="p-3 border-b border-gray-100 bg-blue-50"
-                            onPress={() => {
-                              setIsAddingNewTransporter(true);
+                        <TouchableOpacity
+                          className="p-3 border-b border-gray-100 bg-blue-50"
+                          onPress={() => {
+                            setIsAddingNewTransporter(true);
                               setNewTransportName(transportSearchText);
-                              setSelectedTransport(null);
-                              setTransportId('');
+                            setSelectedTransport(null);
+                            setTransportId('');
                               setIsTransportFocused(false);
                               Keyboard.dismiss();
-                            }}
+                          }}
                             activeOpacity={0.7}
-                          >
+                        >
                             <Text className="text-base text-blue-700 font-semibold">
                               + Add New: "{transportSearchText}"
-                            </Text>
-                          </TouchableOpacity>
+                          </Text>
+                        </TouchableOpacity>
                         )}
                         {transporters
                           .filter((t) =>
@@ -713,30 +713,30 @@ const DispatchNoteDetailScreen = () => {
                   />
                   {(isDriverFocused || (driverSearchText && driverSearchText.trim().length > 0 && !selectedDriver && !isAddingNewDriver)) && (
                     <View className="max-h-48 border border-gray-200 rounded-lg mt-2 bg-white" style={{ zIndex: 1000 }}>
-                      <ScrollView
+                      <ScrollView 
                         keyboardShouldPersistTaps="handled"
                         nestedScrollEnabled={true}
                       >
                         {/* Add New Driver option */}
                         {driverSearchText.trim().length > 0 && (
-                          <TouchableOpacity
-                            className="p-3 border-b border-gray-100 bg-blue-50"
-                            onPress={() => {
-                              setIsAddingNewDriver(true);
+                        <TouchableOpacity
+                          className="p-3 border-b border-gray-100 bg-blue-50"
+                          onPress={() => {
+                            setIsAddingNewDriver(true);
                               setDriverName(driverSearchText);
-                              setSelectedDriver(null);
-                              setSelectedDriverId('');
-                              setDriverNationalId('');
-                              setDriverCellphone('');
+                            setSelectedDriver(null);
+                            setSelectedDriverId('');
+                            setDriverNationalId('');
+                            setDriverCellphone('');
                               setIsDriverFocused(false);
                               Keyboard.dismiss();
-                            }}
+                          }}
                             activeOpacity={0.7}
-                          >
+                        >
                             <Text className="text-base text-blue-700 font-semibold">
                               + Add New: "{driverSearchText}"
-                            </Text>
-                          </TouchableOpacity>
+                          </Text>
+                        </TouchableOpacity>
                         )}
                         {drivers
                           .filter((d) =>

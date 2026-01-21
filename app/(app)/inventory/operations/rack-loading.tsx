@@ -217,7 +217,7 @@ const RackLoadingScreen = () => {
         <View className="bg-white rounded-lg border border-gray-200 p-4">
           {/* Warehouse type-and-search */}
           <View className="mb-4">
-            <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
+          <Text className="font-semibold text-gray-700 mb-1">Warehouse</Text>
             <TextInput
               className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
               placeholderTextColor="#9CA3AF"
@@ -244,7 +244,7 @@ const RackLoadingScreen = () => {
                     )
                     .slice(0, 25)
                     .map((wh) => (
-                      <TouchableOpacity
+          <TouchableOpacity
                         key={wh.id}
                         className="p-3 border-b border-gray-100 bg-white"
                         onPress={() => {
@@ -252,11 +252,11 @@ const RackLoadingScreen = () => {
                           Keyboard.dismiss();
                         }}
                         activeOpacity={0.7}
-                      >
+          >
                         <Text className="text-base text-gray-900">
                           {getWarehouseDisplayName(wh)}
-                        </Text>
-                      </TouchableOpacity>
+            </Text>
+          </TouchableOpacity>
                     ))}
                   {warehouses.filter((wh) =>
                     getWarehouseDisplayName(wh)
@@ -274,7 +274,7 @@ const RackLoadingScreen = () => {
 
           {/* Location type-and-search */}
           <View className="mb-6">
-            <Text className="font-semibold text-gray-700 mb-1">Location</Text>
+          <Text className="font-semibold text-gray-700 mb-1">Location</Text>
             <TextInput
               className="bg-gray-100 border border-gray-300 rounded-lg p-3 text-base"
               placeholderTextColor="#9CA3AF"
@@ -283,10 +283,10 @@ const RackLoadingScreen = () => {
               value={locationSearchText}
               onChangeText={handleLocationChange}
               onFocus={() => {
-                if (!selectedWarehouse) {
-                  Alert.alert('Select Warehouse', 'Please select a warehouse first.');
-                  return;
-                }
+              if (!selectedWarehouse) {
+                Alert.alert('Select Warehouse', 'Please select a warehouse first.');
+                return;
+              }
                 setIsLocationFocused(true);
               }}
               onBlur={() => setTimeout(() => setIsLocationFocused(false), 100)}
@@ -320,8 +320,8 @@ const RackLoadingScreen = () => {
                         <Text className="text-base text-gray-900">
                           {getLocationDisplayName(loc, selectedWarehouse)}
                           {loc.default_location ? '  (Default)' : ''}
-                        </Text>
-                      </TouchableOpacity>
+            </Text>
+          </TouchableOpacity>
                     ))}
                   {locations.filter((loc) =>
                     getLocationDisplayName(loc, selectedWarehouse)

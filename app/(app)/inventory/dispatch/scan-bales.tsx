@@ -120,10 +120,39 @@ const ScanBalesScreen = () => {
   }, []);
 
   const _validateAgainstShippingInstruction = async (shippedBale: any, code: string, baleMass: number, actualDispatchNoteId: string, now: string) => {
+    // Load bale grade and its parent to mirror Odoo's grade hierarchy logic
+    // (see _is_grade_match_with_hierarchy in warehouse_dispatch_bale_wizard.py)
+    const baleGrade = await powersync.getOptional<any>(
+      `SELECT id, parent_grade FROM warehouse_bale_grade WHERE id = ?`,
+      [String(shippedBale.grade)]
+    );
+
+    const gradeIdsToMatch: string[] = [];
+    if (baleGrade?.id) {
+      gradeIdsToMatch.push(String(baleGrade.id));
+    }
+    if (baleGrade?.parent_grade) {
+      gradeIdsToMatch.push(String(baleGrade.parent_grade));
+    }
+
+    // Fallback: if we couldn't load grade info, just use the bale grade id
+    if (!gradeIdsToMatch.length && shippedBale.grade) {
+      gradeIdsToMatch.push(String(shippedBale.grade));
+    }
+
+    // Build dynamic IN clause for grade hierarchy
+    const gradePlaceholders = gradeIdsToMatch.map(() => '?').join(', ');
+
     const instructionLine = await powersync.getOptional<any>(
       `SELECT * FROM warehouse_instruction_line 
-       WHERE instruction_id = ? AND product_id = ? AND grade_id = ?`,
-      [Number(dispatchNote.instruction_id), Number(shippedBale.product_id), Number(shippedBale.grade)]
+       WHERE instruction_id = ? 
+         AND product_id = ? 
+         AND grade_id IN (${gradePlaceholders})`,
+      [
+        Number(dispatchNote.instruction_id),
+        Number(shippedBale.product_id),
+        ...gradeIdsToMatch.map(id => Number(id)),
+      ]
     );
 
     if (!instructionLine) {

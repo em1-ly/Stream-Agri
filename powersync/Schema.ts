@@ -1046,6 +1046,8 @@ const warehouse_bale_grade = new Table({
   // Odoo model: warehouse.bale_grade
   name: column.text,
   product_id: column.integer,
+  // Parent grade hierarchy (Many2one to warehouse.bale_grade in Odoo)
+  parent_grade: column.integer,
 });
 
 const warehouse_transport = new Table({

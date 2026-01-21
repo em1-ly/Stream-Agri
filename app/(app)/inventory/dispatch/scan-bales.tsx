@@ -301,11 +301,11 @@ const ScanBalesScreen = () => {
         });
         
         if (!inPostedNote) {
-          const msg = `Product '${code}' is already dispatched on the server!`;
+        const msg = `Product '${code}' is already dispatched on the server!`;
           console.log('🚨 Scan bale validation error: dispatched flag is 1 and not in posted note', { code, baleId: shippedBale.id });
-          setMessage(msg);
-          setIsSaving(false);
-          return false;
+        setMessage(msg);
+        setIsSaving(false);
+        return false;
         } else {
           console.log('✅ Bale is dispatched but in posted note - allowing re-dispatch', { code, baleId: shippedBale.id });
         }

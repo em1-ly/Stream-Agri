@@ -12,6 +12,7 @@ export default function BarcodeScannerScreen() {
   const [highlightedBarcode, setHighlightedBarcode] = useState<string | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(0.3); // Start with some zoom to help distant scans
   const cameraRef = useRef<CameraView>(null);
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -66,6 +67,28 @@ export default function BarcodeScannerScreen() {
     getCameraPermissions();
   }, []);
 
+  // Approximate auto-zoom: gradually increase zoom while scanning and nothing is highlighted
+  useEffect(() => {
+    if (hasPermission !== true) return;
+
+    let interval: any;
+    // Only auto-zoom while we are actively scanning and don't yet have a highlighted result
+    if (!highlightedBarcode && !scanError) {
+      interval = setInterval(() => {
+        setZoom((current) => {
+          const next = Math.min(0.8, current + 0.05); // cap zoom to avoid extreme grain
+          return next;
+        });
+      }, 1000); // every second
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [hasPermission, highlightedBarcode, scanError]);
+
   const toggleTorch = () => {
     setTorchOn(!torchOn);
   };
@@ -80,6 +103,13 @@ export default function BarcodeScannerScreen() {
       normalized = value.substring(1);
     }
 
+    // Normalize leading/trailing asterisks and spaces for Code39-style barcodes or QR payloads
+    // e.g. "*127512659 *" -> "127512659"
+    // This runs for all types so QR codes that wrap the same value also benefit.
+    // Normalize leading/trailing asterisks for Code39-style barcodes or QR payloads
+    // e.g. "*127512659 *" -> "127512659 "
+    normalized = normalized.replace(/^\*+|\*+$/g, '');
+
     if (!validateCheckDigit(normalized)) {
       Vibration.vibrate([0, 200, 100, 200]);
       setScanError('Invalid Barcode');
@@ -92,6 +122,9 @@ export default function BarcodeScannerScreen() {
     }
 
     setHighlightedBarcode(value);
+
+    // Reset zoom back to baseline after a successful scan so the next scan starts sane
+    setZoom(0.3);
 
     try {
       Vibration.vibrate(200);
@@ -170,6 +203,7 @@ export default function BarcodeScannerScreen() {
         style={{ flex: 1 }}
         facing="back"
         enableTorch={torchOn}
+        zoom={zoom}
         onBarcodeScanned={scanned ? undefined : ({ type, data }) => handleDetectedCode((type || '').toLowerCase(), data || '')}
         barcodeScannerSettings={{
           barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'codabar', 'upc_a', 'upc_e', 'pdf417']

@@ -105,7 +105,7 @@ export default function BarcodeScanner({
     let interval: any;
     // Only auto-zoom while we are actively scanning, don't yet have a highlighted result,
     // and zoom is below a sensible cap (to avoid over-zooming which makes codes unreadable).
-    const MAX_ZOOM = 0.2; // Stop zooming at a reasonable level to avoid getting too close
+    const MAX_ZOOM = 0.1; // Stop zooming at a reasonable level to avoid getting too close
     if (!highlightedBarcode && !scanError && zoom < MAX_ZOOM) {
       interval = setInterval(() => {
         setZoom((current) => {
@@ -390,7 +390,7 @@ export default function BarcodeScanner({
               top: 0, 
               left: 0, 
               right: 0, 
-              height: '25%',
+              height: '10%',
               backgroundColor: '#000000'
             }} 
           />
@@ -402,7 +402,7 @@ export default function BarcodeScanner({
               bottom: 0, 
               left: 0, 
               right: 0, 
-              height: '25%',
+              height: '10%',
               backgroundColor: '#000000'
             }} 
           />
@@ -412,9 +412,9 @@ export default function BarcodeScanner({
             className="absolute" 
             style={{ 
               left: 0, 
-              top: '25%', 
-              bottom: '25%',
-              width: '18%',
+              top: '10%', 
+              bottom: '10%',
+              width: '0%',
               backgroundColor: '#000000'
             }} 
           />
@@ -426,7 +426,7 @@ export default function BarcodeScanner({
               right: 0, 
               top: '25%', 
               bottom: '25%',
-              width: '18%',
+              width: '0%',
               backgroundColor: '#000000'
             }} 
           />

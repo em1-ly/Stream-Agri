@@ -105,13 +105,14 @@ export default function BarcodeScanner({
     let interval: any;
     // Only auto-zoom while we are actively scanning, don't yet have a highlighted result,
     // and zoom is below a sensible cap (to avoid over-zooming which makes codes unreadable).
-    if (!highlightedBarcode && !scanError && zoom < 0.5) {
+    const MAX_ZOOM = 0.2; // Stop zooming at a reasonable level to avoid getting too close
+    if (!highlightedBarcode && !scanError && zoom < MAX_ZOOM) {
       interval = setInterval(() => {
         setZoom((current) => {
-          const next = Math.min(0.5, current + 0.03); // softer step and lower max zoom
+          const next = Math.min(MAX_ZOOM, current + 0.03); // Cap at max zoom level
           return next;
         });
-      }, 1000); // every second
+      }, 1000); // every 2 seconds
     }
 
     return () => {

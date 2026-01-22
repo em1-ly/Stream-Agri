@@ -37,7 +37,6 @@ export default function BarcodeScanner({
   const [torchOn, setTorchOn] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [lastDetectedValue, setLastDetectedValue] = useState<string | null>(null); // Re-introduce for stability check
-  const [zoom, setZoom] = useState(0.3); // Start with a bit of zoom to help distant scans
   const cameraRef = useRef<CameraView>(null);
 
   // Validate 10-digit Code 39 barcode with Modulo 43 check digit
@@ -97,30 +96,6 @@ export default function BarcodeScanner({
     };
     getCameraPermissions();
   }, []);
-
-  // Approximate auto-zoom: gently increase zoom while scanning, but only up to a safe level
-  useEffect(() => {
-    if (hasPermission !== true) return;
-
-    let interval: any;
-    // Only auto-zoom while we are actively scanning, don't yet have a highlighted result,
-    // and zoom is below a sensible cap (to avoid over-zooming which makes codes unreadable).
-    const MAX_ZOOM = 0.1; // Stop zooming at a reasonable level to avoid getting too close
-    if (!highlightedBarcode && !scanError && zoom < MAX_ZOOM) {
-      interval = setInterval(() => {
-        setZoom((current) => {
-          const next = Math.min(MAX_ZOOM, current + 0.03); // Cap at max zoom level
-          return next;
-        });
-      }, 1000); // every 2 seconds
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [hasPermission, highlightedBarcode, scanError]);
 
   const toggleTorch = async () => {
     console.log('🔦 Toggling torch from', torchOn, 'to', !torchOn);
@@ -251,9 +226,6 @@ export default function BarcodeScanner({
     // On success, show the highlighted barcode (use the normalized one)
     setHighlightedBarcode(normalizedValue);
 
-    // Reset zoom back to baseline after a successful scan so the next scan starts sane
-    setZoom(0.3);
-
     // Play success beep and haptic feedback
     try {
       Vibration.vibrate(200); 
@@ -373,7 +345,6 @@ export default function BarcodeScanner({
         style={{ flex: 1 }}
         facing="back"
         enableTorch={torchOn}
-        zoom={zoom}
         onBarcodeScanned={(scanned && !stayOnCamera) ? undefined : ({ type, data }) => handleDetectedCode((type || '').toLowerCase(), data || '')}
         barcodeScannerSettings={{
           // Receiving mainly uses CTL Code39 barcodes plus QR codes that

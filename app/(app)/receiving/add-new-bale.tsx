@@ -6,6 +6,7 @@ import { powersync, setupPowerSync } from '@/powersync/system';
 import { GrowerDeliveryNoteRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
 import { v4 as uuidv4 } from 'uuid';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Code 39 check digit validation
 const validateCheckDigit = (barcode: string): boolean => {
@@ -47,6 +48,9 @@ const getTodaySaleDate = (): string => {
   return today.includes('T') ? today.split('T')[0] : today;
 };
 
+// Storage key for remembering last selected Hessian across sessions
+const HESSIAN_ID_STORAGE_KEY = 'last_hessian_id';
+
 export default function AddNewBaleScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -73,6 +77,8 @@ export default function AddNewBaleScreen() {
   const [editingBaleId, setEditingBaleId] = useState<string | null>(null); // Track if we're editing an existing bale
   const [syncStatus, setSyncStatus] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  // Session-based persistence fallback when AsyncStorage is not available
+  const [sessionPersistedHessianId, setSessionPersistedHessianId] = useState<string | null>(null);
 
   const toInt = (val: string) => {
     const n = parseInt((val || '').trim(), 10);
@@ -212,6 +218,14 @@ export default function AddNewBaleScreen() {
         const expected = note.number_of_bales_delivered || 0;
         setExpectedCount(expected);
 
+        if ((note as any).location_id) {
+          const noteLocationId = (note as any).location_id;
+          setSessionLocationId(noteLocationId);
+          console.log('📋 Auto-populated sessionLocationId from grower note location_id:', noteLocationId);
+        }
+        console.log('📋 Session Location ID:', sessionLocationId);
+        console.log('📋 Session Location Name:', sessionLocationName);
+
         // Get current bale count
         const baleCountResult = await powersync.get<{ count: number }>(
           'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
@@ -299,12 +313,101 @@ export default function AddNewBaleScreen() {
     loadHessians();
   }, []);
 
+  // Load persisted Hessian selection (from AsyncStorage or session fallback) when Hessians are available
+  useEffect(() => {
+    const loadPersistedHessian = async () => {
+      try {
+        let persisted: string | null = null;
+
+        // Try AsyncStorage first
+        if (AsyncStorage && typeof AsyncStorage.getItem === 'function') {
+          persisted = await AsyncStorage.getItem(HESSIAN_ID_STORAGE_KEY);
+          console.log('📋 Attempting to load persisted Hessian from AsyncStorage, found:', persisted);
+        }
+
+        // Fallback to session state if AsyncStorage is not available or empty
+        if (!persisted && sessionPersistedHessianId) {
+          persisted = sessionPersistedHessianId;
+          console.log('📋 Using session-persisted Hessian ID:', persisted);
+        }
+
+        // Auto-apply persisted Hessian when:
+        // - there is a persisted value
+        // - there is no current session/selected Hessian
+        if (
+          persisted &&
+          !sessionHessianId &&
+          !selectedHessian &&
+          hessians.length > 0
+        ) {
+          const found = hessians.find((h) => String(h.id) === persisted);
+          if (found) {
+            setSessionHessianId(found.id);
+            setSessionHessianName(found.name);
+            setSelectedHessian(found);
+            setHessianSearchText(`${found.name} (${found.hessian_id})`);
+            console.log('📋 Successfully loaded and applied persisted Hessian:', found.id);
+          }
+        }
+      } catch (e) {
+        console.error('📋 Failed to load persisted Hessian ID:', e);
+      }
+    };
+
+    if (hessians.length > 0) {
+      loadPersistedHessian();
+    }
+  }, [hessians, sessionHessianId, selectedHessian, sessionPersistedHessianId]);
+
+  // Ensure any existing sessionHessianId (from params or persistence) is
+  // reflected in the selectedHessian + search text once hessians are loaded.
+  useEffect(() => {
+    if (!sessionHessianId || selectedHessian || hessians.length === 0) {
+      return;
+    }
+
+    const found = hessians.find((h) => String(h.id) === String(sessionHessianId));
+    if (found) {
+      setSelectedHessian(found);
+      setSessionHessianName(found.name);
+      setHessianSearchText(`${found.name} (${found.hessian_id})`);
+      console.log('📋 Synced sessionHessianId to selectedHessian:', found.id);
+    }
+  }, [sessionHessianId, hessians, selectedHessian]);
+
   // Handlers for Hessian
   const handleHessianSelect = (hessian: { id: number; name: string; hessian_id: string }) => {
     setSelectedHessian(hessian);
     setSessionHessianId(hessian.id);
     setSessionHessianName(hessian.name);
     setHessianSearchText(`${hessian.name} (${hessian.hessian_id})`);
+
+    // Persist the Hessian selection for future bales/documents
+    const valueToPersist = String(hessian.id).trim();
+
+    try {
+      if (AsyncStorage && typeof AsyncStorage.setItem === 'function') {
+        AsyncStorage.setItem(HESSIAN_ID_STORAGE_KEY, valueToPersist)
+          .then(() => {
+            console.log('📋 Successfully persisted Hessian ID to AsyncStorage:', valueToPersist);
+          })
+          .catch((e: any) => {
+            console.error('📋 Failed to persist Hessian ID to AsyncStorage:', e);
+            // Fallback to session storage
+            setSessionPersistedHessianId(valueToPersist);
+            console.log('📋 Fallback: Persisted Hessian ID to session state:', valueToPersist);
+          });
+      } else {
+        // Fallback to session storage when AsyncStorage is not available
+        setSessionPersistedHessianId(valueToPersist);
+        console.log('📋 AsyncStorage not available, using session state for Hessian ID:', valueToPersist);
+      }
+    } catch (e) {
+      console.error('📋 Error persisting Hessian ID:', e);
+      // Fallback to session storage
+      setSessionPersistedHessianId(valueToPersist);
+      console.log('📋 Fallback: Persisted Hessian ID to session state after error:', valueToPersist);
+    }
   };
 
   const handleHessianChange = (text: string) => {
@@ -313,6 +416,16 @@ export default function AddNewBaleScreen() {
       setSelectedHessian(null);
       setSessionHessianId(null);
       setSessionHessianName('');
+      // If user clears the Hessian field, also clear persisted value so it
+      // doesn't keep auto-populating against their wishes.
+      if (!text || !text.trim()) {
+        try {
+          if (AsyncStorage && typeof AsyncStorage.removeItem === 'function') {
+            AsyncStorage.removeItem(HESSIAN_ID_STORAGE_KEY).catch(() => {});
+          }
+        } catch {}
+        setSessionPersistedHessianId(null);
+      }
     }
   };
 
@@ -805,6 +918,8 @@ export default function AddNewBaleScreen() {
         documentNumber: documentNumber,
         hessianId: sessionHessianId,
         locationId: sessionLocationId,
+        hessianName: sessionHessianName,
+        locationName: sessionLocationName,
         preserveState: 'true'
       }
     });

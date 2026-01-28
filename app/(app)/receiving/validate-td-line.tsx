@@ -185,19 +185,23 @@ export default function ValidateTDLineScreen() {
       [{ text: 'OK', onPress: () => router.back() }]
     );
 
-    // ===== BACKGROUND: Save to database and trigger sync (fire and forget) =====
+    // ===== BACKGROUND: Use unified_create to validate and book to TIMB (fire and forget) =====
     // This runs in the background so the UI feels instant
+    // Validation succeeds even if TIMB booking fails
     (async () => {
       try {
-        const writeDate = new Date().toISOString();
-        console.log('📝 Updating TD line locally:', {
-          id: originalLine.id,
-          actual_bales_found: actualCount,
-          validation_notes: notes?.trim() || null,
-          bales_difference: balesDifference,
-          physical_validation_status: 'validated'
+        console.log('📝 Validating TD line and booking to TIMB via unified_create:', {
+          line_id: originalLine.id,
+          physical_bales: actualCount,
+          notes: notes?.trim() || null,
+          preferred_sale_date: line?.preferred_sale_date
         });
         
+        // Use unified_create endpoint for offline-first validation and TIMB booking
+        // The connector will handle the sync and the server will attempt TIMB booking
+        const writeDate = new Date().toISOString();
+        
+        // Store validation data locally first (offline support)
         await powersync.execute(
           `UPDATE receiving_boka_transporter_delivery_note_line 
            SET actual_bales_found = ?, 
@@ -209,21 +213,26 @@ export default function ValidateTDLineScreen() {
           [actualCount, notes?.trim() || null, balesDifference, writeDate, originalLine.id]
         );
         
-        console.log('✅ Local UPDATE completed - PowerSync should detect this change');
+        console.log('✅ Local validation UPDATE completed - PowerSync will sync and trigger TIMB booking');
 
         // Trigger sync in background (non-blocking)
+        // The connector's unified_create will handle the server-side validation and TIMB booking
         setTimeout(async () => {
           try {
             const transaction = await (powersync as any).getNextCrudTransaction?.();
             if (transaction && connectorInstance && typeof connectorInstance.uploadData === 'function') {
               console.log(`✅ PowerSync detected pending transaction with ${transaction.crud?.length || 0} operations`);
-              console.log('🔄 Manually triggering uploadData...');
+              console.log('🔄 Manually triggering uploadData (will attempt TIMB booking on server)...');
               await connectorInstance.uploadData(powersync);
-              console.log('✅ uploadData completed');
+              console.log('✅ uploadData completed - TIMB booking attempted on server');
+              
+              // Note: TIMB booking result will be in chatter, not returned to mobile app
+              // This is by design - validation succeeds even if booking fails
             }
           } catch (syncError) {
             console.warn('⚠️ Error during background sync:', syncError);
             // Don't show error to user - PowerSync will retry automatically
+            // Validation still succeeded locally
           }
         }, 300);
       } catch (e: any) {

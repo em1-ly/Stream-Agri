@@ -142,9 +142,36 @@ export default function BarcodeScanner({
             normalizedValue = extracted.trim();
             // Continue to validate the extracted barcode below
           }
-      }
+        }
       } catch (e) {
         // Not valid JSON, continue to regular detection
+      }
+    }
+
+    // 0a) QR with extra text where the barcode is the last segment or after '*'
+    // Examples:
+    //  - V217401-Edzai Kamuche-A-0,5-Christopher Munokori-Gilbert Matyoro-Leonard Bukuta-ME-226000016H
+    //  - V265051-Simbarashe Matope-A-1-Edison Mukapu-Gilbert Matyoro-Leonard Bukuta-ME-*226034190R
+    // We want to extract just the 10-character barcode (e.g. 226000016H / 226034190R).
+    if (normalizedValue.length > 10) {
+      let candidate: string | null = null;
+
+      // Prefer content after the last '*' if present
+      const starIndex = normalizedValue.lastIndexOf('*');
+      if (starIndex !== -1 && starIndex < normalizedValue.length - 1) {
+        candidate = normalizedValue.slice(starIndex + 1).trim();
+      } else {
+        // Otherwise, take the last '-' separated segment
+        const parts = normalizedValue.split('-');
+        if (parts.length > 1) {
+          candidate = parts[parts.length - 1].trim();
+        }
+      }
+
+      if (candidate && candidate.length >= 10) {
+        const lastTen = candidate.slice(-10); // ensure we end up with 10 chars
+        console.log('✅ Detected embedded barcode in QR payload. Extracted:', lastTen, 'from:', normalizedValue);
+        normalizedValue = lastTen;
       }
     }
 
@@ -219,7 +246,7 @@ export default function BarcodeScanner({
         setTimeout(() => {
           setScanError(null);
           setIsScanning(false);
-        }, 10);
+        }, 0);
         return;
     }
 

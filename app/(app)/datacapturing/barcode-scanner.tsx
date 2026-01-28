@@ -80,12 +80,40 @@ export default function BarcodeScannerScreen() {
       normalized = value.substring(1);
     }
 
-    // Normalize leading/trailing asterisks and spaces for Code39-style barcodes or QR payloads
-    // e.g. "*127512659 *" -> "127512659"
-    // This runs for all types so QR codes that wrap the same value also benefit.
-    // Normalize leading/trailing asterisks for Code39-style barcodes or QR payloads
-    // e.g. "*127512659 *" -> "127512659 "
+    // First strip leading/trailing asterisks from the whole payload
+    // so that "*226034190R*" becomes "226034190R"
     normalized = normalized.replace(/^\*+|\*+$/g, '');
+
+    // 0a) QR with extra text where the barcode is the last segment or after '*'
+    // Examples:
+    //  - V217401-Edzai Kamuche-A-0,5-Christopher Munokori-Gilbert Matyoro-Leonard Bukuta-ME-226000016H
+    //  - V265051-Simbarashe Matope-A-1-Edison Mukapu-Gilbert Matyoro-Leonard Bukuta-ME-*226034190R
+    // We want to extract just the 10-character barcode (e.g. 226000016H / 226034190R).
+    if (normalized.length > 10) {
+      let candidate: string | null = null;
+
+      // Prefer content after the last '*' if present
+      const starIndex = normalized.lastIndexOf('*');
+      if (starIndex !== -1 && starIndex < normalized.length - 1) {
+        candidate = normalized.slice(starIndex + 1).trim();
+      } else {
+        // Otherwise, take the last '-' separated segment
+        const parts = normalized.split('-');
+        if (parts.length > 1) {
+          candidate = parts[parts.length - 1].trim();
+        }
+      }
+
+      if (candidate) {
+        // Strip any asterisks around the candidate, then take the last 10 chars
+        const cleaned = candidate.replace(/^\*+|\*+$/g, '');
+        if (cleaned.length >= 10) {
+          const lastTen = cleaned.slice(-10);
+          console.log('✅ Detected embedded barcode in QR payload. Extracted:', lastTen, 'from:', normalized);
+          normalized = lastTen;
+        }
+      }
+    }
 
     if (!validateCheckDigit(normalized)) {
       Vibration.vibrate([0, 200, 100, 200]);
@@ -94,7 +122,7 @@ export default function BarcodeScannerScreen() {
       setTimeout(() => {
         setScanError(null);
         setIsScanning(false);
-      }, 2000);
+      }, 0);
       return;
     }
 

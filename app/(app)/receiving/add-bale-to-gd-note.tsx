@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { powersync, setupPowerSync } from '@/powersync/system';
 import { GrowerDeliveryNoteRecord, HessianRecord } from '@/powersync/Schema';
 import * as SecureStore from 'expo-secure-store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Toggle to enable/disable verbose logs for the save bale flow
 const DEBUG_SAVE_LOGS = false;
@@ -48,6 +49,7 @@ const validateCheckDigit = (barcode: string): boolean => {
 };
 
 export default function AddBaleToGDNoteScreen() {
+  const insets = useSafeAreaInsets();
   const [documentNumber, setDocumentNumber] = useState('');
   const [growerNote, setGrowerNote] = useState<GrowerDeliveryNoteRecord | null>(null);
   const router = useRouter();
@@ -674,6 +676,7 @@ export default function AddBaleToGDNoteScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       className="flex-1 bg-[#65435C]"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      style={{ paddingTop: insets.top }}
     >
       <Stack.Screen options={{ title: 'Add Bale to GD Note', headerShown: false }} />
       <View className="flex-1">

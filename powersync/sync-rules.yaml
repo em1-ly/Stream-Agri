@@ -8,6 +8,7 @@ receiving_bucket:
         - SELECT * FROM receiving_curverid_row_management WHERE create_date > '2025-09-25';
         - SELECT * FROM floor_maintenance_selling_point;
         - SELECT * FROM floor_maintenance_sale_date_receiving;
+        - SELECT * FROM data_processing_startofday;
         - SELECT * FROM floor_maintenance_floor_sale;
         - SELECT * FROM floor_maintenance_bale_location;
         - SELECT * FROM receiving_hessian;

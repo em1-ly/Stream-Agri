@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { powersync, connectorInstance } from '@/powersync/system';
+import { powersync } from '@/powersync/system';
 import { ChevronLeft } from 'lucide-react-native';
 
 type TDLine = {
@@ -94,9 +94,24 @@ export default function ValidateTDLineScreen() {
         );
         return;
       }
+
+      // Additional Pre-validation: Mirror Odoo "start of day has been run" rule
+      // Odoo prevents validating TD lines once start of day exists for that sale date.
+      const startOfDayRecord = await powersync.getOptional(
+        'SELECT id FROM data_processing_startofday WHERE sale_date = ? LIMIT 1',
+        [saleDateToValidate]
+      );
+
+      if (startOfDayRecord) {
+        Alert.alert(
+          'Cannot Validate',
+          `Start of day has been run for ${saleDateToValidate}. You cannot validate transporter delivery note lines for this sale date.`
+        );
+        return;
+      }
     } catch (e) {
-      console.error('Failed to pre-validate sale date', e);
-      Alert.alert('Error', 'Could not verify the sale date. Please check your connection and try again.');
+      console.error('Failed to pre-validate sale date / start of day', e);
+      Alert.alert('Error', 'Could not verify the sale date / start of day. Please check your connection and try again.');
       return;
     }
 
@@ -215,26 +230,9 @@ export default function ValidateTDLineScreen() {
         
         console.log('✅ Local validation UPDATE completed - PowerSync will sync and trigger TIMB booking');
 
-        // Trigger sync in background (non-blocking)
-        // The connector's unified_create will handle the server-side validation and TIMB booking
-        setTimeout(async () => {
-          try {
-            const transaction = await (powersync as any).getNextCrudTransaction?.();
-            if (transaction && connectorInstance && typeof connectorInstance.uploadData === 'function') {
-              console.log(`✅ PowerSync detected pending transaction with ${transaction.crud?.length || 0} operations`);
-              console.log('🔄 Manually triggering uploadData (will attempt TIMB booking on server)...');
-              await connectorInstance.uploadData(powersync);
-              console.log('✅ uploadData completed - TIMB booking attempted on server');
-              
-              // Note: TIMB booking result will be in chatter, not returned to mobile app
-              // This is by design - validation succeeds even if booking fails
-            }
-          } catch (syncError) {
-            console.warn('⚠️ Error during background sync:', syncError);
-            // Don't show error to user - PowerSync will retry automatically
-            // Validation still succeeded locally
-          }
-        }, 300);
+        // Trigger sync in background (non-blocking).
+        // PowerSync's normal sync loop will pick up this CRUD transaction and
+        // the backend will attempt TIMB booking; we don't need to force it here.
       } catch (e: any) {
         console.error('Failed to validate line locally', e);
         // Revert optimistic update on error

@@ -1498,6 +1498,14 @@ const floor_maintenance_selling_point = new Table(
   { indexes: {} }
 );
 
+const data_processing_startofday = new Table({
+  // Odoo model: data_processing.startofday
+  // We only need the date locally to mirror the Odoo "start of day has been run" rule
+  sale_date: column.text,
+  create_date: column.text,
+  write_date: column.text,
+}, { indexes: {} });
+
 const floor_maintenance_sale_date_receiving = new Table({
   // Odoo model: floor_maintenance.sale_date_receiving
   sale_date: column.text,
@@ -1680,6 +1688,7 @@ export const AppSchema = new Schema({
   floor_maintenance_selling_point,
   floor_maintenance_sale_date_receiving,
   floor_maintenance_floor_sale,
+  data_processing_startofday,
   floor_maintenance_timb_grade,
   buyers_buyer,
   buyers_grade,

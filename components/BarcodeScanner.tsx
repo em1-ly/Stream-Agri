@@ -169,6 +169,11 @@ export default function BarcodeScanner({
         }
       }
 
+      // Strip trailing Code 39 START/STOP '*' so slice(-10) doesn't drop the first digit (e.g. 226034190R* -> 226034190R)
+      if (candidate && candidate.endsWith('*')) {
+        candidate = candidate.slice(0, -1);
+      }
+
       if (candidate && candidate.length >= 10) {
         // Don't .trim() — Code 39 check digit can be a space
         const lastTen = candidate.slice(-10);

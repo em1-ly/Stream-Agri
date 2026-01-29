@@ -1,0 +1,848 @@
+Web service(s)	Method	Content Type	Request pay load encoding (Floor to TIMB)	Authorization	Response (TIMB to Floor)	Description
+Booking	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Booking and registration user credentials)	JSON_encoding	Query grower booking.
+Insert booking.
+Delete grower booking.
+Creditor	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Query creditor.
+Get creditor file.
+Bale file	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Submit bale data 
+Deduction file	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Submit deduction data 
+Transporter file	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Submit transporter data 
+Growermaster	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Booking and registration user credentials)	JSON_encoding	Query grower details.
+Get grower database.
+Price matrix	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Price matrix for specific date. 
+Previous season’s matrix.
+Stop order file	Post	application/x-www-form-urlencoded	JSON_encoding	Digest header authorization (Stop order user credentials)	JSON_encoding	Generate grower stop orders.
+
+
+
+Authentication summary  
+The authentication of the TIMB web services makes use of the DIGEST authorization parameter supplied within the header section of the web service being requested by the client.
+i.e. <Authorization> <Digest username:md5(password)>
+If authorization is denied for the web service being requested by the client an HTTP 401 (Authorization failed) message is relied back to the client.
+
+Booking and Registration authorization
+When accessing a booking and registration related web service, the client should use the user names and passwords for valid users who currently have credentials to access the booking and registration system. The web services to use these credentials include the:
+    1. Grower web service
+    2. Booking web service
+
+Stop order System authorization
+When accessing a stop order system, grades and matrix related web services, the client should use the user names and passwords for valid users who currently have credentials to access the stop order system. The web services to use these credentials include the:
+    1. Bale file web service
+    2. Deduction file web service
+    3. Transporter file web service
+    4. Stop order file web service
+    5. Creditor web service
+    6. Grades web service
+
+
+
+Booking web service summary  
+The T.I.M.B. booking web service will be consumed by the floors web service. The floor shall consume this T.I.M.B. web service as and when necessary and shall receive the grower booking details that should be processed into the floors system for every grower booking queried.
+The floors shall consume the T.I.M.B. booking web service on a grower by grower basis.
+
+    1. QUERY GROWER BOOKING REQUEST:
+Used to get the grower booking details on a particular day.
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /bookingWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) grower (this field shall contain the grower number for which the floor shall receive the booking details as  JSON encoded data in the response.)
+    2) saleDate (this field shall contain the date for which the floor shall receive the booking details as  JSON encoded data in the response.)
+    3) floor (this field shall contain the date for which the floor shall receive the booking details as  JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/bookingWebservices?grower=V122512&saleDate=12-MAY-18&floor=TIA
+
+BOOKING WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"bookingID":"1552599548","bookingDate":"10-MAY-18","grower":"V122512”,"balesBooked":”8”,"sellDate":"12-MAY-18”,"bookedBy":”TESTUSER”,"floor”:"EJV”,"reoffer”:"Y”}]
+
+RESPONSE DATA FIELDS:
+
+bookingDate 
+grower
+balesBooked
+sellDate
+bookedBy
+floor
+reoffer
+bookingID
+
+
+
+ERROR CHECKING
+
+In the event that an error is encountered the error response will be returned in the bookingID column. All other fields will be empty.
+
+{"bookingID":"Grower is not booked to sell on your floor.","bookingDate": "","grower":"” ,"balesBooked":””, "sellDate":"”, "bookedBy":””,"floor”:"”,"reoffer”:"”}
+
+{"bookingID":"Grower is not booked for the specified date.","bookingDate": "","grower":"” ,"balesBooked":””, "sellDate":"”, "bookedBy":””,"floor”:"”,"reoffer”:"”}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    2. INSERT GROWER BOOKING:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /insertbookingWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) grower (this field shall contain the grower number as  JSON encoded data in the response.)
+    2) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    3) floor (this field shall contain the floor as  JSON encoded data in the response.)
+    4) bookingDate (this field shall contain the booking date as  JSON encoded data in the response.)
+    5) balesBooked (this field shall contain the bales being booked as  JSON encoded data in the response.)
+    6) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    7) bookedBy (this field shall contain the booked by as  JSON encoded data in the response.)
+    8) reoffer (this field shall contain the reoffer (N/Y) as  JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/insertbookingWebservices?grower=V255368&saleDate=12-MAY-18&floor=TIA&bookingDate=10-MAY-18& balesBooked=150&saleDate=12-MAY-18&bookedBy= TESTUSER&reoffer=N
+
+INSERT BOOKING WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"insertBookingResult":"failed","insertBookingMessage":"no booking date is open for the specified date”}]
+
+RESPONSE DATA FIELDS:
+
+insertBookingResult 
+insertBookingMessage 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    3. UPDATE GROWER BOOKING:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /updatebookingWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) grower (this field shall contain the grower number as  JSON encoded data in the response.)
+    2) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    3) floor (this field shall contain the floor as  JSON encoded data in the response.)
+    4) bookingDate (this field shall contain the booking date as  JSON encoded data in the response.)
+    5) balesBooked (this field shall contain the bales being booked as  JSON encoded data in the response.)
+    6) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    7) bookedBy (this field shall contain the booked by as  JSON encoded data in the response.)
+    8) reoffer (this field shall contain the reoffer (N/Y) as  JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/updatebookingWebservices?grower=V255368&saleDate=12-MAY-18&floor=TIA&bookingDate=10-MAY-18& balesBooked=150&saleDate=12-MAY-18&bookedBy= TESTUSER&reoffer=N
+
+UPDATE BOOKING WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"updateBookingResult":"success","updateBookingMessage":"booking successfully updated”}]
+
+RESPONSE DATA FIELDS:
+
+updateBookingResult 
+updateBookingMessage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    4. DELETE GROWER BOOKING:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /deletebookingWebservices
+Method: POST
+Format: JSON
+Parameters:
+    9) grower (this field shall contain the grower number as  JSON encoded data in the response.)
+    10) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    11) floor (this field shall contain the floor as  JSON encoded data in the response.)
+    12) bookingDate (this field shall contain the booking date as  JSON encoded data in the response.)
+    13) balesBooked (this field shall contain the bales being booked as  JSON encoded data in the response.)
+    14) saleDate (this field shall contain the sale date as  JSON encoded data in the response.)
+    15) bookedBy (this field shall contain the booked by as  JSON encoded data in the response.)
+    16) reoffer (this field shall contain the reoffer (N/Y) as  JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/deletebookingWebservices?grower=V255368&saleDate=12-MAY-18&floor=TIA&bookingDate=10-MAY-18& balesBooked=150&saleDate=12-MAY-18&bookedBy= TESTUSER&reoffer=N
+
+DELETE BOOKING WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"deleteBookingResult":"success","deleteBookingMessage":"booking successfully deleted”}]
+
+RESPONSE DATA FIELDS:
+
+deleteBookingResult 
+deleteBookingMessage
+
+
+
+
+Creditor list web service summary  
+The T.I.M.B. creditor list web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary and shall receive the creditor’s details that should be processed into the floors system for every grower submitted.
+
+The floors shall consume the T.I.M.B. creditor list web service on a creditor by creditor basis.
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /creditorlistWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) creditorNumber (this field shall contain the creditor number for which the floor shall receive the creditor details as JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/creditorlistWebservices?creditorNumber=60220
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREDITOR LIST WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"creditor_no":"14710","creditor_ref":"011731307","creditor_accountno":"AA11969","creditor_name":"MEDA  CROMWELL","address1":"154 ABC","address2":"P.O. BOX 123","creditor_type":"INVOICE"}]
+
+[{"creditor_no":"62200","creditor_ref":"011731307","creditor_accountno":"","creditor_name":"TEST INSURANCE COMPANY","address1":"154 ABC","address2":"P.O. BOX 123","creditor_type":"STOPORDER"}]
+
+RESPONSE DATA FORMAT:
+
+creditor_no
+creditor_ref
+creditor_accountno
+creditor_name
+address1
+address2
+creditor_type
+
+
+ERROR HANDLING
+In the event that a creditor is not found. The response shall be returned with the error message. All other fields will be empty.
+[{"creditor_no":"Invalid creditor number 611102 specified", "creditor_ref":"", "creditor_accountno":"","creditor_name":"","address1":"","address2":"”,"creditor_type":""}]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Get creditor file web service summary  
+The T.I.M.B. creditor file web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary and shall receive the creditor’s details that should be processed into the floors system for every grower submitted.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /creditorAllWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) No parameters required, as this will download the entire creditor file
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/creditorAllWebservices
+
+
+CREDITOR FILE WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"creditor_no":"14710","creditor_ref":"011731307","creditor_accountno":"AA11969","creditor_name":"MEDA  CROMWELL","address1":"154 ABC","address2":"P.O. BOX 123","creditor_type":"INVOICE"}]
+
+[{"creditor_no":"62200","creditor_ref":"011731307","creditor_accountno":"","creditor_name":"TEST INSURANCE COMPANY","address1":"154 ABC","address2":"P.O. BOX 123","creditor_type":"STOPORDER"}]
+
+
+
+
+
+Bale file web service summary  
+The T.I.M.B. bale file web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary in order to submit the days bale details that will have been processed in the floors system for every grower that sold.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /EODBalefileWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) baleTransactions (this field shall contain the bale data similar to that submitted in the physical bale file. JSON encoded data.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/EODBalefileWebservices?baleTransactions=
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+BALE FILE WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[
+{"sale_id":"1","bale_set":"3750261303","grower_type":"V","grower":"192906","grower_suffix":"","grade":"A3MD”,"bale_no":"41","mass":"88","sign":"+","price":"263","conv_rate":"0","us_val":"2340800","sign":"+","zim_val":"0","sign":"+","cultivar":"N","indicator":"N","buyer_code":"X2","wrap":"P",”floor”:”BK” ,"saledate":"0313"}, {"sale_id":"1","bale_set":"25512236","grower_type":"V","grower":"192906","grower_suffix":"","grade":"A3MD”,"bale_no":"41","mass":"88","sign":"+","price":"263","conv_rate":"0","us_val":"2340800","sign":"+","zim_val":"0","sign":"+","cultivar":"N","indicator":"N","buyer_code":"X2","wrap":"P",”floor”:”BK” ,"saledate":"0313"}
+]
+
+13750261303V192906  A3MD 0000410000088+00263000000000000000000000002340800+0000000000000000+    NX2 P  
+
+RESPONSE DATA FORMAT:
+
+SALE-ID 		varchar2(1)
+BALE_SET 		varchar2(10)
+GROWER_TYPE 		varchar2(1)
+GROWER 		number(6)
+GROWER_SUFFIX 	varchar2(2)
+GRADE 			varchar2(5)
+BALE_NO 		number(6)
+MASS 			number(7)
+SIGN 			varchar2(1)
+PRICE 			number(5)
+CONV_RATE 		number(16,2)
+US_VAL 		number(14)
+SIGN 			varchar2(1)
+ZIM_VAL 		number(16)
+SIGN 			varchar2(1)
+CULTIVAR 		varchar2(4)
+INDICATOR 		varchar2(1)
+BUYERCODE 		varchar2(3)
+WRAP			varchar2(3)
+FLOOR			varchar2(2)
+SALEDATE		varchar2(4)
+
+
+
+
+ERROR HANDLING
+In the event that an error is not found. The response shall be returned with the error message. All the records submitted for the day in the Bale file, deduction file and transporter file will be rolled back if an error is encountered for the matching date.
+[{"bale_file_processing_response":"Invalid creditor number 611102 specified for grower V125523. ”}]
+
+
+
+
+
+Deduction file web service summary  
+The T.I.M.B. deduction file web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary in order to submit the days deduction details that will have been processed in the floors system for every grower that sold.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /EODDeductionfileWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) deductionTransactions (this field shall contain the deduction data similar to that submitted in the physical deduction file. JSON encoded data.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/ EODDeductionfileWebservices?deductionTransactions=
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+DEDUCTION FILE WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[
+{"sale_id": "1",    "recordtype": "3",    "grower_type": "V",    "grower": "114581",    "grower_suffix": "",    "creditorno": "60140",    "creditorref": "79701",    "amount": "3300",    "sign": "+",    "serialno": "0",    "floor": "MF",    "saledate": "0313"  },  {   "sale_id": "1",    "recordtype": "2",    "grower_type": "V",    "grower": "192906",    "grower_suffix": "",    "creditorno": "61110",    "creditorref": "",    "amount": "111",    "sign": "+",    "serialno": "0",    "floor": "MF",    "saledate": "0313" }
+]
+
+103V114581  60140    79701000000000000000003300+00
+
+RESPONSE DATA FORMAT:
+
+SALE-ID 		varchar2(1)
+REC-TYPE 	number(2)
+GROWER-TYPE  	varchar2(1)
+GROWER 	number(6)
+GROWER_SUFFIX varchar2(2)
+CR_NO 		number(4)
+CR-REF 		varchar2(10)
+AMOUNT 	number(16)
+SIGN 		varchar2(1)
+SERIAL-NO 	varchar(3)
+
+
+ERROR HANDLING
+In the event that an error is not found. The response shall be returned with the error message. All the records submitted for the day in the bale file, deduction file and transporter file will be rolled back if an error is encountered for the matching date.
+[{"deduction_file_processing_response":"Invalid creditor number 611102 specified for grower V125523. ”}]
+
+
+
+
+
+Transporter file web service summary  
+The T.I.M.B. transporter file web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary in order to submit the days bale details that will have been processed in the floors system for every grower that sold.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /EODTransporterfileWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) transporterTransactions (this field shall contain the transporter data similar to that submitted in the physical transporter file. JSON encoded data.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/ EODTransporterfileWebservices?transporterTransactions =
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+TRANSPORTER FILE WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[
+{"sale_id": "1", "grower_type": "V",    "grower": "135978",    "grower_suffix": "",    "creditorno": "40290",  "amount": "480000",    "sign": "+", "floor": "MF", "saledate": "0313"  }, 
+{  "sale_id": "1", "grower_type": "V",    "grower": "192906",    "grower_suffix": "",    "creditorno": "11250",  "amount": "52215",    "sign": "+", "floor": "MF", "saledate": "0313"}]
+
+1V135978  4029000000000000480000+05042016
+
+RESPONSE DATA FORMAT:
+
+SALE-ID 		varchar2(1)
+BALE_SET 		varchar2(10)
+GROWER_TYPE 		varchar2(1)
+GROWER 		number(6)
+GROWER_SUFFIX 	varchar2(2)
+GRADE 			varchar2(5)
+BALE_NO 		number(6)
+MASS 			number(7)
+SIGN 			varchar2(1)
+PRICE 			number(5)
+CONV_RATE 		number(16,2)
+US_VAL 		number(14)
+SIGN 			varchar2(1)
+ZIM_VAL 		number(16)
+SIGN 			varchar2(1)
+CULTIVAR 		varchar2(4)
+INDICATOR 		varchar2(1)
+BUYERCODE 		varchar2(3)
+WRAP			varchar2(3)
+
+
+
+
+
+
+
+ERROR HANDLING
+In the event that an error is not found. The response shall be returned with the error message. All the records submitted for the day in the Bale file, deduction file and transporter file will be rolled back if an error is encountered for the matching date.
+[{"transporter_file_processing_response":"Invalid transporter number 21150 specified for grower V125523. ”}]
+
+
+Add new T.I.M.B. grade web service summary  
+The new T.I.M.B. grade web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary and shall receive confirmation on whether the new grade was accepted or not.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /newgradeWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) grade (this field shall contain the new grade for which the floor shall receive the confirmation details as JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/ newgradeWebservices?newgrade=T3OKQ,T4LD,L5FO
+
+
+NEW GRADE WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"confirmation":" Successful" }]
+
+Or 
+
+[{"confirmation":" Unsuccessful" }]
+
+
+
+
+
+
+Price matrix web service summary  
+The T.I.M.B. price matrix web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary and shall receive the grade and average price that should be processed into the floors system for every price matrix date submitted.
+
+The floors shall consume the T.I.M.B. price matrix web service on a date by date basis.
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /pricematrixWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) matrixdate (this field shall contain the date for which the floor shall receive the price matrix details as  JSON encoded data in the response.)
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/pricematrixWebservices? matrixdate=12-DEC-17
+
+
+GRADES WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"grade":"T3OKQ","price":"235"},{"grade":"L20","price":"453"},{"grade":"X50","price":"133"},{"grade":"A5L0","price":"103"}]
+
+
+RESPONSE DATA FORMAT:
+
+grade 
+price
+
+
+
+
+
+
+
+
+
+
+
+
+Previous season’s price matrix web service summary  
+The T.I.M.B. previous seasons price matrix web service will be consumed by the floors web service. The floor shall consume the T.I.M.B. web service as and when necessary and shall receive the grade and average price that should be processed into the floors system for the seasonal price matrix.
+
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /seasonalpricematrixWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) No parameters required.
+
+i.e. the REQUEST to the T.I.M.B. web service is illustrated hereinafter
+
+…/seasonalpricematrixWebservices
+
+
+PREVIOUS SEASONS GRADE MATRIX WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"grade":"T3OKQ","price":"235"},{"grade":"L20","price":"453"},{"grade":"X50","price":"133"},{"grade":"A5L0","price":"103"}]
+
+
+RESPONSE DATA FORMAT:
+
+grade 
+price
+
+
+
+
+
+Stop order web service summary  
+The T.I.M.B. stop order web service will be consumed by the floors web service. The floors will provide the grower number for a grower selling on a particular day through the service. The floors shall consume the T.I.M.B. web service after a grower’s booking is confirmed as successful or before processing of payments. The floors shall receive the array list of stop orders that should be processed for every grower submitted.
+
+The floors shall consume the T.I.M.B. stop order web service on a grower by grower basis.
+REQUEST:
+Floor Server IP: https://www.timb.co.zw:80
+URL:  /stoporderWebservices
+Method: POST
+Format: JSON
+Parameters:
+    1) growerNumber (this field shall contain the grower number for which the floor shall receive the stop order as JSON encoded data in the response.)
+    2) platformCode (platformCode refers to the sales floor code. Refer to the below platform code for each floor)
+Selling Point	Platform Code
+LEAF TRADE TOBACCO	LT
+CHIDZIVA TOBACCO BURLEY	CB
+PREMIER CONTRACT	PC
+AQUA TOBACCO COMPANY	AQ
+TSF-ETHICAL JOINT VENTURE	EJ
+PREMIUM LEAF TOBACCO	PL
+KRATOS	KC
+PAMUKA	PM
+ZPTFU	ZP
+GOLDEN LEAF MERCHANTS	GL
+TSL	TL
+MAXLUCY INV	MX
+AQUA TOBACCO	AT
+LEANRISE AGRICULTURE	LN
+AGRITRADE	ZT
+MIDRIVER	MR
+BOOST AFRICA	PB
+CURVERID TOBACCO	CT
+MTC Karoi	M1
+MTC Rusape	M2
+MTC Mwurwi	M3
+VOESDEL	VD
+MUNAKIRI TOBACCO	MK
+ZPTFA GBT	PG
+BOOST AFRICA	BF
+MILLENIUM TOBACCO	ML
+PREMIER TOBACCO	PT
+SHASHA TOBACCO	SH
+BOKA TOBACCO FLOORS	BK
+CURVERID TOBACCO	CV
+TRIBAC	TR
+CHIDZIVA TOBACCO	CH
+MASHONALAND TOBACCO COMPANY	MT
+ZLT SMALL SCALE	ZS
+TIAN ZE TOBACCO COMPANY	TZ
+TOBACCO SALES FLOORS	TS
+ZIMBABWE LEAF TOBACCO	ZL
+NORTHERN TOBACCO	EL
+INTERCONTINENTAL LEAF TOBACCO	IL
+GOLD LEAF SERVICES	BC
+MTC TSF	MF
+AGRITRADE	GA
+ONHART TOBACCO	OH
+MAGUIRES	MG
+SAG CIVILS	SC
+MEGA LEAF TOBACCO	ME
+
+
+i.e. the REQUEST to the web service is illustrated hereinafter
+
+…/stoporderWebservices?platformCode=MT&growerNumbers=V111222,V302211,V302211
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+STOP ORDER WEB SERVICE RESPONSE
+
+RESPONSE TYPE: JSON
+
+[{"saleid:"Q,"recordtype:"03,"growertype:"177186,"grower:"177186,"suffix:"  ,"creditorno:"61120,"priority:"01,"creditorref:"          ,"accountno:"              ,"amountone:"00000000000000528000,"signone:"+,"amounttwo:"00000000000000000000,"signtwo:"+,"amountthree:"00000000000000000000,"signthree:"+,"percent:"0000000,"intdate:"20180226,"type:"1,"serialno:"00},
+{"saleid:"Q,"recordtype:"03,"growertype:"262657,"grower:"262657,"suffix:"  ,"creditorno:"61120,"priority:"02,"creditorref:"          ,"accountno:"              ,"amountone:"00000000000000240000,"signone:"+,"amounttwo:"00000000000000000000,"signtwo:"+,"amountthree:"00000000000000000000,"signthree:"+,"percent:"0000000,"intdate:"20180226,"type:"1,"serialno:"00},
+{"saleid:"Q,"recordtype:"03,"growertype:"262657,"grower:"262657,"suffix:"  ,"creditorno:"60300,"priority:"01,"creditorref:"          ,"accountno:"              ,"amountone:"00000000000006761700,"signone:"+,"amounttwo:"00000000000000000000,"signtwo:"+,"amountthree:"00000000000000000000,"signthree:"+,"percent:"0000000,"intdate:"20180226,"type:"1,"serialno:"00},
+{"saleid:"Q,"recordtype:"03,"growertype:"300307,"grower:"300307,"suffix:"  ,"creditorno:"60110,"priority:"01,"creditorref:"          ,"accountno:"              ,"amountone:"00000000000010600000,"signone:"+,"amounttwo:"00000000000000000000,"signtwo:"+,"amountthree:"00000000000000000000,"signthree:"+,"percent:"0000000,"intdate:"20180226,"type:"1,"serialno:"00},
+{"saleid:"Q,"recordtype:"03,"growertype:"195110,"grower:"195110,"suffix:"  ,"creditorno:"60110,"priority:"02,"creditorref:"          ,"accountno:"              ,"amountone:"00000000000010600000,"signone:"+,"amounttwo:"00000000000000000000,"signtwo:"+,"amountthree:"00000000000000000000,"signthree:"+,"percent:"0000000,"intdate:"20180226,"type:"1,"serialno:"00}]
+
+RESPONSE DATA FORMAT:
+
+saleid 			varchar2(1)
+recordtype		 number(2)
+growertype 		varchar2(1)
+grower 			number(6)
+suffix 			varchar2(2)
+creditorno 		number(5)
+priority 			number(2)
+creditorref		varchar2(10)
+accountno 		varchar2(14)
+amountone 		number(20)
+signone			varchar2(1)
+amounttwo 		number(20)
+signtwo			varchar2(1)
+amountthree 		number(20)
+signthree 		varchar2(1)
+percent 		number(7)
+intdate 			number(8)
+type 			varchar2(1)
+serialno 		number(2)
+
+ 
+

@@ -696,9 +696,9 @@ export class Connector implements PowerSyncBackendConnector {
             }
           }
 
-          // Always include mobile user info for all create operations
-          // Exception: floor_dispatch_create_note and warehouse_dispatch_create_note wizards don't accept mobile_user_id/mobile_user_name
-          if (originalTableName !== 'floor_dispatch_note' && originalTableName !== 'warehouse_dispatch_note') {
+          // Only include mobile user info for models that have these fields (whitelist)
+          const tablesWithMobileUserFields = ['receiving_grower_delivery_note', 'floor_dispatch_note', 'warehouse_dispatch_note'];
+          if (tablesWithMobileUserFields.includes(originalTableName)) {
             if (mobileUserId) {
               createData['mobile_user_id'] = Number(mobileUserId);
             }
@@ -2280,14 +2280,14 @@ export class Connector implements PowerSyncBackendConnector {
             }
           }
 
-          // Always include mobile user info for all update operations
-          // Exception: floor_dispatch_note and warehouse_dispatch_note models don't accept mobile_user_id/mobile_user_name
-          if (tableName !== 'floor_dispatch_note' && tableName !== 'warehouse_dispatch_note') {
-          if (mobileUserId) {
-            newRecordDataToSend['mobile_user_id'] = Number(mobileUserId);
-          }
-          if (mobileUserName) {
-            newRecordDataToSend['mobile_user_name'] = mobileUserName;
+          // Only include mobile user info for models that have these fields (whitelist)
+          const tablesWithMobileUserFields = ['receiving_grower_delivery_note', 'floor_dispatch_note', 'warehouse_dispatch_note'];
+          if (tablesWithMobileUserFields.includes(tableName)) {
+            if (mobileUserId) {
+              newRecordDataToSend['mobile_user_id'] = Number(mobileUserId);
+            }
+            if (mobileUserName) {
+              newRecordDataToSend['mobile_user_name'] = mobileUserName;
             }
           }
 

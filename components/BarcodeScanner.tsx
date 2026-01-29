@@ -128,7 +128,8 @@ export default function BarcodeScanner({
     let isValid = true;
     let validationError: string | null = null;
     let detectedType: string | null = null;
-    let normalizedValue = value.trim();
+    // Don't use .trim() — Code 39 uses space as valid data/check digit; only strip newlines
+    let normalizedValue = value.replace(/\r\n?|\n/g, '');
 
     // 0) Packed QR Code (JSON format)
     // Format: {"a": ["...", "...", ..., "TV05422125", ...]}
@@ -139,7 +140,7 @@ export default function BarcodeScanner({
           const extracted = parsed.a[8]; // Extract barcode at index 8
           if (extracted) {
             console.log('✅ Detected Packed QR Code. Extracted barcode:', extracted);
-            normalizedValue = extracted.trim();
+            normalizedValue = String(extracted).replace(/\r\n?|\n/g, '');
             // Continue to validate the extracted barcode below
           }
         }
@@ -159,27 +160,28 @@ export default function BarcodeScanner({
       // Prefer content after the last '*' if present
       const starIndex = normalizedValue.lastIndexOf('*');
       if (starIndex !== -1 && starIndex < normalizedValue.length - 1) {
-        candidate = normalizedValue.slice(starIndex + 1).trim();
+        candidate = normalizedValue.slice(starIndex + 1).replace(/\r\n?|\n/g, '');
       } else {
-        // Otherwise, take the last '-' separated segment
+        // Otherwise, take the last '-' separated segment (no trim — Code 39 can use space)
         const parts = normalizedValue.split('-');
         if (parts.length > 1) {
-          candidate = parts[parts.length - 1].trim();
+          candidate = parts[parts.length - 1].replace(/\r\n?|\n/g, '');
         }
       }
 
       if (candidate && candidate.length >= 10) {
-        const lastTen = candidate.slice(-10); // ensure we end up with 10 chars
+        // Don't .trim() — Code 39 check digit can be a space
+        const lastTen = candidate.slice(-10);
         console.log('✅ Detected embedded barcode in QR payload. Extracted:', lastTen, 'from:', normalizedValue);
         normalizedValue = lastTen;
       }
     }
 
     // 0b) Strip leading/trailing asterisks for Code 39 style barcodes
-    // Many scanners (or QR payloads) include *START/STOP* chars, e.g. *123456789X*.
-    // The actual data for Mod43 is the inner 10 characters.
+    // Many scanners (or QR payloads) include *START/STOP* chars, e.g. *123456789X* or *123456789 *.
+    // The actual data for Mod43 is the inner 10 characters. Don't .trim() — check digit can be space.
     if (normalizedValue.length >= 3 && normalizedValue.startsWith('*') && normalizedValue.endsWith('*')) {
-      normalizedValue = normalizedValue.substring(1, normalizedValue.length - 1).trim();
+      normalizedValue = normalizedValue.substring(1, normalizedValue.length - 1);
     }
 
     const length = normalizedValue.length;
@@ -250,7 +252,7 @@ export default function BarcodeScanner({
         return;
     }
 
-    // On success, show the highlighted barcode (use the normalized one)
+    // On success, show the highlighted barcode (normalized only — do not trim; Code 39 check digit can be space)
     setHighlightedBarcode(normalizedValue);
 
     // Play success beep and haptic feedback
@@ -265,7 +267,7 @@ export default function BarcodeScanner({
       setScanned(true);
     }
 
-    // Call the callback immediately with the extracted/normalized barcode
+    // Call the callback with the extracted/normalized barcode (no trim — Code 39 uses space as check digit)
     onBarcodeScanned(normalizedValue);
       
       // If stayOnCamera is true, reset scanning state after callback so user can scan again

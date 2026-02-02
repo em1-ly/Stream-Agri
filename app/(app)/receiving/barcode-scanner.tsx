@@ -74,8 +74,7 @@ export default function BarcodeScannerScreen() {
     // Defer the rest of the logic to ensure the scanner modal can respond immediately
     setTimeout(async () => {
       if (returnTo === 'scale-bale') {
-        // Process the scan directly - insert into sequencing table
-        setScanStatus('processing');
+        // Process the scan directly - insert into sequencing table (no "processing" state to avoid showing it too long)
         try {
           const rowNum = parseInt(currentRow, 10);
           const layNum = params.lay ? parseInt(params.lay as string, 10) : 1;
@@ -503,153 +502,161 @@ export default function BarcodeScannerScreen() {
           // will automatically pick up the new count when receiving_curverid_bale_sequencing_model updates.
           // This prevents "double counting" or optimistic update issues.
           
+          // Immediately show success feedback to the user
           setScanStatus('success');
           setScanMessage('✅ Scanned successfully');
           console.log('✅ Sequencing record inserted from camera screen');
 
-          // Check if row is now full after this scan (matching sequencing_wizard.py logic)
-          if (!isNaN(rowNum) && layNum !== null && sellingPointId !== null) {
-            try {
-              // Get today's date in YYYY-MM-DD format
-              const today = new Date();
-              const todayStr = today.toISOString().split('T')[0];
-              
-              // Count current bales in this row/lay/selling_point combination for today
-              // This matches get_row_capacity_used() in Python: counts by selling_point_id, row, lay, and scan_date
-              // Using create_date since scan_date may not be in local schema
-              const countResult = await powersync.get<{ count: number }>(
-                `SELECT COUNT(*) as count 
-                 FROM receiving_curverid_bale_sequencing_model 
-                 WHERE selling_point_id = ? 
-                   AND "row" = ? 
-                   AND lay = ? 
-                   AND DATE(create_date) = ?`,
-                [sellingPointId, rowNum, layNum.toString(), todayStr]
-              );
-              const currentCount = countResult?.count || 0;
-
-              // Get row capacity (matching get_row_capacity() in Python)
-              // First try to get from row_configuration for this specific row, then fall back to selling_point.row_capacity, then default 50
-              let rowCapacity = 50; // Default capacity (matches Python default)
-              try {
-                // Try to get row-specific capacity from row_configuration (may not be in schema)
-                try {
-                  const rowConfig = await powersync.get<any>(
-                    `SELECT max_capacity 
-                     FROM floor_maintenance_row_configuration
-                     WHERE selling_point_id = ? 
-                       AND row_number = ? 
-                       AND active = 1
-                     LIMIT 1`,
-                    [sellingPointId, rowNum]
-                  );
-                  if (rowConfig?.max_capacity) {
-                    rowCapacity = rowConfig.max_capacity;
-                    console.log(`📦 Using row-specific capacity from row_configuration: ${rowCapacity}`);
-                  }
-                } catch (rowConfigError: any) {
-                  // Row configuration table may not exist in schema, try selling_point
-                  if (rowConfigError?.message?.includes('no such table') || rowConfigError?.message?.includes('empty')) {
-                    console.log('📦 Row configuration table not found, trying selling_point.row_capacity');
-                  } else {
-                    throw rowConfigError;
-                  }
-                }
-                
-                // If row_config not found, try selling_point.row_capacity (may not be in schema)
-                if (rowCapacity === 50) {
-                  try {
-                    const sellingPoint = await powersync.get<any>(
-                      `SELECT row_capacity 
-                       FROM floor_maintenance_selling_point
-                       WHERE id = ?
-                       LIMIT 1`,
-                      [sellingPointId]
-                    );
-                    if (sellingPoint?.row_capacity) {
-                      rowCapacity = sellingPoint.row_capacity;
-                      console.log(`📦 Using selling_point.row_capacity: ${rowCapacity}`);
-                    }
-                  } catch (spError: any) {
-                    // row_capacity field may not be in schema
-                    if (spError?.message?.includes('no such column')) {
-                      console.log('📦 row_capacity field not in schema, using default 50');
-                    } else {
-                      throw spError;
-                    }
-                  }
-                }
-              } catch (e) {
-                // Fallback to default if check fails
-                console.warn('⚠️ Could not get row capacity, using default 50:', e);
-              }
-
-              console.log(`📦 Row Capacity: ${rowCapacity} for Row ${rowNum}, Lay ${layNum}, Selling Point ${sellingPointId}`);
-
-              // If row is now full, show alert and navigate to scale-bale
-              if (currentCount >= rowCapacity) {
-                console.log(`📦 Row ${rowNum} Lay ${layNum} is now full (${currentCount}/${rowCapacity} bales) - navigating to scale-bale`);
-                Alert.alert(
-                  '✅ Row Full!',
-                  `Row ${rowNum} Lay ${layNum} is now full (${currentCount}/${rowCapacity} bales). Navigating to scale-bale screen.`,
-                  [
-                    {
-                      text: 'OK',
-                      onPress: () => {
-                        router.push({
-                          pathname: '/receiving/scale-bale',
-                          params: {
-                            scannedBarcode: barcode,
-                            row: currentRow,
-                            lay: params.lay as string,
-                            selling_point_id: params.selling_point_id as string,
-                            floor_sale_id: params.floor_sale_id as string
-                          }
-                        });
-                      }
-                    }
-                  ]
-                );
-                return;
-              }
-            } catch (rowCheckError) {
-              console.warn('⚠️ Error checking if row is full:', rowCheckError);
-              // Continue with other checks even if this fails
-            }
-          }
-
-          // Check completion immediately (optional, but good for UX)
-          if (gdnId || docNum) {
-             try {
-               const deliveryStats = await powersync.get<any>(
-                 `SELECT 
-                    (SELECT COUNT(*) FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id = gdn.id) as scanned_count,
-                    COALESCE(gdn.number_of_bales_delivered, gdn.number_of_bales, 0) as expected_count
-                  FROM receiving_grower_delivery_note gdn
-                  WHERE ${docNum ? 'gdn.document_number = ?' : 'gdn.id = ?'}`,
-                 [docNum || gdnId]
-               );
-               
-               if (deliveryStats) {
-                 const scanned = deliveryStats.scanned_count || 0;
-                 const expected = deliveryStats.expected_count || 0;
-                 if (expected > 0 && scanned >= expected && !hasShownCompletionAlert) {
-                    setHasShownCompletionAlert(true);
-                    Alert.alert(
-                      '🎉 Delivery Complete! 🎉',
-                      '✅ Delivery note completed and sent to ticket printing. 🌟',
-                      [{ text: 'OK' }]
-                    );
-                 }
-               }
-             } catch (e) { console.warn('Error checking completion:', e); }
-          }
-          
           // Reset status after 1.5 seconds to allow next scan
           setTimeout(() => {
             setScanStatus('idle');
             setScanMessage('');
-          }, 1500);
+          }, 1000);
+
+          // Run row-full and completion checks in the background so they don't block the success message
+          (async () => {
+            try {
+              // Check if row is now full after this scan (matching sequencing_wizard.py logic)
+              if (!isNaN(rowNum) && layNum !== null && sellingPointId !== null) {
+                try {
+                  // Get today's date in YYYY-MM-DD format
+                  const today = new Date();
+                  const todayStr = today.toISOString().split('T')[0];
+                  
+                  // Count current bales in this row/lay/selling_point combination for today
+                  // This matches get_row_capacity_used() in Python: counts by selling_point_id, row, lay, and scan_date
+                  // Using create_date since scan_date may not be in local schema
+                  const countResult = await powersync.get<{ count: number }>(
+                    `SELECT COUNT(*) as count 
+                     FROM receiving_curverid_bale_sequencing_model 
+                     WHERE selling_point_id = ? 
+                       AND "row" = ? 
+                       AND lay = ? 
+                       AND DATE(create_date) = ?`,
+                    [sellingPointId, rowNum, layNum.toString(), todayStr]
+                  );
+                  const currentCount = countResult?.count || 0;
+
+                  // Get row capacity (matching get_row_capacity() in Python)
+                  // First try to get from row_configuration for this specific row, then fall back to selling_point.row_capacity, then default 50
+                  let rowCapacity = 50; // Default capacity (matches Python default)
+                  try {
+                    // Try to get row-specific capacity from row_configuration (may not be in schema)
+                    try {
+                      const rowConfig = await powersync.get<any>(
+                        `SELECT max_capacity 
+                         FROM floor_maintenance_row_configuration
+                         WHERE selling_point_id = ? 
+                           AND row_number = ? 
+                           AND active = 1
+                         LIMIT 1`,
+                        [sellingPointId, rowNum]
+                      );
+                      if (rowConfig?.max_capacity) {
+                        rowCapacity = rowConfig.max_capacity;
+                        console.log(`📦 Using row-specific capacity from row_configuration: ${rowCapacity}`);
+                      }
+                    } catch (rowConfigError: any) {
+                      // Row configuration table may not exist in schema, try selling_point
+                      if (rowConfigError?.message?.includes('no such table') || rowConfigError?.message?.includes('empty')) {
+                        console.log('📦 Row configuration table not found, trying selling_point.row_capacity');
+                      } else {
+                        throw rowConfigError;
+                      }
+                    }
+                    
+                    // If row_config not found, try selling_point.row_capacity (may not be in schema)
+                    if (rowCapacity === 50) {
+                      try {
+                        const sellingPoint = await powersync.get<any>(
+                          `SELECT row_capacity 
+                           FROM floor_maintenance_selling_point
+                           WHERE id = ?
+                           LIMIT 1`,
+                          [sellingPointId]
+                        );
+                        if (sellingPoint?.row_capacity) {
+                          rowCapacity = sellingPoint.row_capacity;
+                          console.log(`📦 Using selling_point.row_capacity: ${rowCapacity}`);
+                        }
+                      } catch (spError: any) {
+                        // row_capacity field may not be in schema
+                        if (spError?.message?.includes('no such column')) {
+                          console.log('📦 row_capacity field not in schema, using default 50');
+                        } else {
+                          throw spError;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    // Fallback to default if check fails
+                    console.warn('⚠️ Could not get row capacity, using default 50:', e);
+                  }
+
+                  console.log(`📦 Row Capacity: ${rowCapacity} for Row ${rowNum}, Lay ${layNum}, Selling Point ${sellingPointId}`);
+
+                  // If row is now full, show alert and navigate to scale-bale
+                  if (currentCount >= rowCapacity) {
+                    console.log(`📦 Row ${rowNum} Lay ${layNum} is now full (${currentCount}/${rowCapacity} bales) - navigating to scale-bale`);
+                    Alert.alert(
+                      '✅ Row Full!',
+                      `Row ${rowNum} Lay ${layNum} is now full (${currentCount}/${rowCapacity} bales). Navigating to scale-bale screen.`,
+                      [
+                        {
+                          text: 'OK',
+                          onPress: () => {
+                            router.push({
+                              pathname: '/receiving/scale-bale',
+                              params: {
+                                scannedBarcode: barcode,
+                                row: currentRow,
+                                lay: params.lay as string,
+                                selling_point_id: params.selling_point_id as string,
+                                floor_sale_id: params.floor_sale_id as string
+                              }
+                            });
+                          }
+                        }
+                      ]
+                    );
+                    return;
+                  }
+                } catch (rowCheckError) {
+                  console.warn('⚠️ Error checking if row is full:', rowCheckError);
+                  // Continue with other checks even if this fails
+                }
+              }
+
+              // Check completion immediately (optional, but good for UX)
+              if (gdnId || docNum) {
+                try {
+                  const deliveryStats = await powersync.get<any>(
+                    `SELECT 
+                       (SELECT COUNT(*) FROM receiving_curverid_bale_sequencing_model WHERE delivery_note_id = gdn.id) as scanned_count,
+                       COALESCE(gdn.number_of_bales_delivered, gdn.number_of_bales, 0) as expected_count
+                     FROM receiving_grower_delivery_note gdn
+                     WHERE ${docNum ? 'gdn.document_number = ?' : 'gdn.id = ?'}`,
+                    [docNum || gdnId]
+                  );
+                  
+                  if (deliveryStats) {
+                    const scanned = deliveryStats.scanned_count || 0;
+                    const expected = deliveryStats.expected_count || 0;
+                    if (expected > 0 && scanned >= expected && !hasShownCompletionAlert) {
+                      setHasShownCompletionAlert(true);
+                      Alert.alert(
+                        '🎉 Delivery Complete! 🎉',
+                        '✅ Delivery note completed and sent to ticket printing. 🌟',
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  }
+                } catch (e) { console.warn('Error checking completion:', e); }
+              }
+            } catch (backgroundError) {
+              console.warn('⚠️ Background post-scan checks failed:', backgroundError);
+            }
+          })();
           
         } catch (e: any) {
           console.error('Error processing scan on camera:', e);

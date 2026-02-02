@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
-    "@journeyapps/react-native-quick-sqlite": "^2.4.4",
+    "@journeyapps/react-native-quick-sqlite": "^2.5.0",
     "@powerdesigninc/react-native-prompt": "^0.1.2",
     "@powersync/react-native": "^1.20.0",
     "@react-native-async-storage/async-storage": "1.23.1",
@@ -31,6 +31,7 @@
     "bcryptjs": "^3.0.2",
     "expo": "~52.0.48",
     "expo-asset": "~11.0.5",
+    "expo-av": "~15.0.2",
     "expo-blur": "~14.0.3",
     "expo-camera": "~16.0.18",
     "expo-constants": "~17.0.8",

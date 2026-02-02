@@ -82,12 +82,12 @@ export default function ValidateTDLineScreen() {
         ? rawSaleDate.split('T')[0]
         : rawSaleDate.split(' ')[0];
 
-      const saleDateRecord = await powersync.getOptional(
-        'SELECT sale_date FROM floor_maintenance_sale_date_receiving WHERE sale_date = ? LIMIT 1',
+      const saleDateRow = await powersync.getOptional<{ id: string }>(
+        'SELECT id FROM floor_maintenance_sale_date_receiving WHERE sale_date = ? LIMIT 1',
         [saleDateToValidate]
       );
 
-      if (!saleDateRecord) {
+      if (!saleDateRow) {
         Alert.alert(
           'Cannot Validate',
           `The sale date ${saleDateToValidate} has not been entered. Please contact the Floor Manager to set up the sale date in Odoo before proceeding.`
@@ -95,17 +95,16 @@ export default function ValidateTDLineScreen() {
         return;
       }
 
-      // Additional Pre-validation: Mirror Odoo "start of day has been run" rule
-      // Odoo prevents validating TD lines once start of day exists for that sale date.
+      // Mirror Odoo "start of day has been run" rule: data_processing_startofday.sale_date is the FK id (sale_date_receiving id).
       const startOfDayRecord = await powersync.getOptional(
         'SELECT id FROM data_processing_startofday WHERE sale_date = ? LIMIT 1',
-        [saleDateToValidate]
+        [String(saleDateRow.id)]
       );
 
       if (startOfDayRecord) {
         Alert.alert(
           'Cannot Validate',
-          `Start of day has been run for ${saleDateToValidate}. You cannot validate transporter delivery note lines for this sale date.`
+          `Start of day has been run for ${saleDateToValidate}. You cannot validate transporter delivery note lines for this sale date. Physical counts must be validated before Start of Day is run.`
         );
         return;
       }

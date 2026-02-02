@@ -607,8 +607,23 @@ export default function AddNewBaleScreen() {
     }
     
     // Pre-validation 5: Check if cannot exceed expected bales
-    if (scannedCount >= expectedCount) {
-      errors.push(`Cannot add more bales: Already captured ${scannedCount} out of ${expectedCount} expected bales`);
+    // Use a fresh DB count here to avoid race conditions with the watcher/state
+    if (growerNote && expectedCount > 0) {
+      try {
+        const baleCount = await powersync.get<{ count: number }>(
+          'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
+          [growerNote.id, growerNote.document_number]
+        );
+        const actual = baleCount?.count || 0;
+        if (actual >= expectedCount) {
+          errors.push(
+            `Cannot add more bales: Already captured ${actual} out of ${expectedCount} expected bales`
+          );
+        }
+      } catch (e) {
+        console.warn('⚠️ Error checking bale count before insert:', e);
+        // If this check fails, we let the server enforce limits
+      }
     }
     
     // Pre-validation 6: Check for duplicate group+lot combination in same delivery note
@@ -863,38 +878,53 @@ export default function AddNewBaleScreen() {
 
         // Only auto-advance for new bales, not edits
         if (!editingBaleId) {
-        // Check if all bales have been scanned (optimistic check)
-        if (scannedCount + 1 >= expectedCount) {
-        // Show rainbow success message
-        setTimeout(async () => {
-          // Re-check booking status when user clicks OK after all bales are scanned
-          if (growerNote) {
-            const bookingFound = await checkBookingStatus(growerNote);
-            setIsBooked(bookingFound);
-          }
-          
-          Alert.alert(
-            '🌈 Success!', 
-            `Successfully Scanned!\n\nAll ${expectedCount} bales have been successfully scanned!`,
-            [
-              {
-                text: 'OK', 
-                onPress: () => {
-                  // Navigate back to the GD Note screen (first screen)
-                  console.log('🎯 Navigating back to GD Note screen');
+          try {
+            // Re-count from DB to avoid relying on possibly stale scannedCount
+            const baleCount = await powersync.get<{ count: number }>(
+              'SELECT COUNT(*) as count FROM receiving_bale WHERE grower_delivery_note_id = ? OR document_number = ?',
+              [growerNote.id, growerNote.document_number]
+            );
+            const actualBales = baleCount?.count || 0;
+
+            if (expectedCount > 0 && actualBales >= expectedCount) {
+              // Show rainbow success message
+              setTimeout(async () => {
+                // Re-check booking status when user clicks OK after all bales are scanned
+                if (growerNote) {
+                  const bookingFound = await checkBookingStatus(growerNote);
+                  setIsBooked(bookingFound);
                 }
-              }
-            ]
-          );
-        }, 1000);
-        } else {
-          // Do not show per-bale success alerts; remain silent until completion
-          console.log(`Bale saved. Progress: ${scannedCount + 1}/${expectedCount}`);
-          
-          // Automatically open camera scanner for next bale
-          setTimeout(() => {
-            handleScanBarcode();
-          }, 300); // Small delay to ensure state updates complete
+                
+                Alert.alert(
+                  '🌈 Success!', 
+                  `Successfully Scanned!\n\nAll ${expectedCount} bales have been successfully scanned!`,
+                  [
+                    {
+                      text: 'OK', 
+                      onPress: () => {
+                        // Navigate back to the GD Note screen (first screen)
+                        console.log('🎯 Navigating back to GD Note screen');
+                      }
+                    }
+                  ]
+                );
+              }, 1000);
+            } else {
+              // Do not show per-bale success alerts; remain silent until completion
+              console.log(`Bale saved. Progress: ${actualBales}/${expectedCount}`);
+              
+              // Automatically open camera scanner for next bale
+              setTimeout(() => {
+                handleScanBarcode();
+              }, 300); // Small delay to ensure state updates complete
+            }
+          } catch (e) {
+            console.warn('⚠️ Error checking bale count after insert:', e);
+            // Fallback to previous behaviour if count fails
+            console.log(`Bale saved. Progress (approx): ${scannedCount + 1}/${expectedCount}`);
+            setTimeout(() => {
+              handleScanBarcode();
+            }, 300);
           }
         }
         

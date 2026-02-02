@@ -86,7 +86,7 @@ const ScaleBaleScreen = () => {
   const [documentNumberDisplay, setDocumentNumberDisplay] = useState('');
   const [totalScanned, setTotalScanned] = useState(0);
   const [totalDelivered, setTotalDelivered] = useState(0);
-  const [rowCapacity, setRowCapacity] = useState(5);
+  const [rowCapacity, setRowCapacity] = useState(50);
   const [currentRowBales, setCurrentRowBales] = useState(0);
   
   // Enhanced state variables
@@ -576,7 +576,7 @@ const ScaleBaleScreen = () => {
             }
 
             // Check if adding this bale would exceed capacity
-            const maxCapacity = rowCapacity || 5; // Default to 5 if not set
+            const maxCapacity = rowCapacity || 50; // Default to 50 if not set
             if (existingCount >= maxCapacity) {
               setResultMessage(`❌ Scan Failed\n\nRow ${rowNum} Lay ${layNum} is full (${existingCount}/${maxCapacity} bales). Please select a different row or lay.`);
               setIsError(true);
@@ -733,20 +733,20 @@ const ScaleBaleScreen = () => {
                     const expected = deliveryStats.expected_count || 0;
                     const finalDocNum = deliveryStats.document_number || docNum || 'Unknown';
 
-                      // Check if completion is reached (accounting for the record we just inserted)
-                      // Add 1 to scanned count since we just inserted a record
-                      const totalScanned = scanned + 1;
+                    // Check if completion is reached based on the current saved count
+                    // (the just-inserted record is already included in scanned_count)
+                    const totalScanned = scanned;
 
-                      if (expected > 0 && totalScanned >= expected && !completedDocuments.has(finalDocNum)) {
-                        console.log(`🎉 GD Note ${finalDocNum} completed by local scan! (${totalScanned}/${expected})`);
-                        setCompletedDocuments(prev => new Set(prev).add(finalDocNum));
+                    if (expected > 0 && totalScanned >= expected && !completedDocuments.has(finalDocNum)) {
+                      console.log(`🎉 GD Note ${finalDocNum} completed by local scan! (${totalScanned}/${expected})`);
+                      setCompletedDocuments(prev => new Set(prev).add(finalDocNum));
                       const message = `✅ GD Note ${finalDocNum} Completed!\n\nDelivery note completed and sent to ticket printing.`;
                       setSuccessMessage(message);
                       setShowSuccess(true);
                       
                       Alert.alert(
                         'Delivery Complete',
-                          `Delivery note ${finalDocNum} completed and sent to ticket printing.`,
+                        `Delivery note ${finalDocNum} completed and sent to ticket printing.`,
                         [{ text: 'OK' }]
                       );
                     }

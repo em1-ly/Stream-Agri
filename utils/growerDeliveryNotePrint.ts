@@ -35,6 +35,9 @@ type GrowerDeliveryNoteData = {
   driver_name?: string;
   grower_phone?: string;
   grower_national_id?: string;
+  selling_date?: string;
+  preferred_sale_date?: string;
+  timb_failure_reason?: string;
 };
 
 /**
@@ -81,18 +84,22 @@ export async function printGrowerDeliveryNoteLocally(gdnId: number | string, pri
         gdn.create_date,
         gdn.has_been_booked,
         gdn.transporter_delivery_note_id,
+        gdn.selling_date,
+        gdn.preferred_sale_date,
         sp.name as selling_point_name,
         tdn.physical_dnote_number as transporter_dnote_number,
         tdn.vehicle_registration,
         tdn.transporter_name,
         tdn.transporter_cellphone,
-        tdn.name as driver_name
+        tdn.name as driver_name,
+        rb.status_message as timb_failure_reason
       FROM receiving_grower_delivery_note gdn
       LEFT JOIN floor_maintenance_selling_point sp ON gdn.selling_point_id = sp.id
       LEFT JOIN receiving_transporter_delivery_note tdn ON gdn.transporter_delivery_note_id = tdn.id
       LEFT JOIN receiving_boka_transporter_delivery_note_line td_line 
         ON td_line.transporter_delivery_note_id = gdn.transporter_delivery_note_id 
         AND td_line.grower_number = gdn.grower_number
+      LEFT JOIN receiving_grower_bookings rb ON rb.grower_delivery_note_id = gdn.id
       WHERE gdn.id = ?`,
       [String(gdnId)]
     );
@@ -164,7 +171,7 @@ export async function printGrowerDeliveryNoteLocally(gdnId: number | string, pri
       }
     }
 
-    // Format date
+    // Format date (with time) for create_date
     const formatDate = (dateStr?: string) => {
       if (!dateStr) return '';
       try {
@@ -180,136 +187,111 @@ export async function printGrowerDeliveryNoteLocally(gdnId: number | string, pri
         return dateStr;
       }
     };
+    // Format date only for Selling Date
+    const formatDateOnly = (dateStr?: string) => {
+      if (!dateStr) return '';
+      try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-GB', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric'
+        });
+      } catch {
+        return dateStr;
+      }
+    };
+    const sellingDateStr = gdn.selling_date ? formatDateOnly(gdn.selling_date) : (gdn.preferred_sale_date ? formatDateOnly(gdn.preferred_sale_date) : '');
+    const showTimbReason = !gdn.has_been_booked && (gdn.timb_failure_reason ?? '').trim() !== '';
 
-    // Generate HTML for PDF
+    // Generate HTML for PDF (layout and styles match Odoo report grower_delivery_note_report.xml)
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
           <style>
-            body {
-              font-family: Arial, sans-serif;
-              font-size: 9px;
-              margin: 0;
-              padding: 10px;
-            }
-            .page {
-              font-family: Arial, sans-serif;
-              font-size: 9px;
-              margin: 0;
-              padding: 10px;
-            }
+            body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 0; }
+            .page { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 15px; }
             .header {
               display: flex;
               justify-content: space-between;
               align-items: center;
-              margin-bottom: 10px;
-              border-bottom: 1px solid #8B7355;
-              padding-bottom: 8px;
+              margin-bottom: 15px;
+              border-bottom: 2px solid #8B7355;
+              padding-bottom: 10px;
             }
-            .header-left {
-              display: flex;
-              flex-direction: row;
-              align-items: center;
-            }
-            .header-left h2 {
-              margin: 0;
-              color: #8B7355;
-              font-size: 14px;
-              font-weight: bold;
-            }
-            .header-right {
-              text-align: right;
-              font-size: 10px;
-            }
+            .header-left { display: flex; align-items: center; }
+            .header-left h2 { margin: 0; color: #8B7355; font-size: 16px; font-weight: bold; }
+            .header-mid { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+            .header-right { text-align: right; }
             .two-columns {
               display: flex;
               justify-content: space-between;
               margin-bottom: 5px;
-              gap: 10px;
-              font-size: 12px;
+              gap: 15px;
+              font-size: 14px;
             }
-            .column {
-              flex: 1;
-            }
-            .field {
-              margin-bottom: 8px;
-            }
-            .field label {
-              font-weight: bold;
-              display: block;
-              margin-bottom: 2px;
-            }
+            .column { flex: 1; }
+            .column-left { flex: 1; margin-right: 5px; }
+            .field { margin-bottom: 10px; }
+            .field label { font-weight: bold; display: block; margin-bottom: 3px; }
             .field-value {
               border: 1px solid #ccc;
-              padding: 4px;
+              padding: 5px;
               background: white;
-              min-height: 18px;
+              min-height: 20px;
             }
             .footer {
               display: flex;
               justify-content: space-between;
               align-items: end;
-              margin-top: 20px;
+              margin-top: 25px;
             }
-            .signature-line {
-              border-bottom: 1px solid #000;
-              width: 150px;
-              margin-top: 5px;
-            }
+            .signature-line { border-bottom: 1px solid #000; width: 200px; margin-top: 5px; }
             .qr-placeholder {
-              width: 80px;
-              height: 80px;
+              width: 100px; height: 100px;
               border: 1px solid #ddd;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: #f5f5f5;
-              color: #666;
-              font-size: 8px;
-              text-align: center;
+              display: flex; align-items: center; justify-content: center;
+              background: #f5f5f5; color: #666; font-size: 8px; text-align: center;
             }
           </style>
         </head>
         <body>
           <div class="page">
-            <!-- Header -->
+            <!-- Header (matches Odoo report) -->
             <div class="header">
               <div class="header-left">
-                <img src="${logoBase64}" style="max-height: 40px; margin-right: 10px;" alt="Company Logo"/>
+                ${logoBase64 ? `<img src="${logoBase64}" style="max-height: 50px; margin-right: 15px;" alt="Company Logo"/>` : ''}
                 <div>
                   <h2>DELIVERY NOTE</h2>
-                  <div style="font-size: 8px; color: #666;">
-                    Curverid Tobacco Private Limited
-                  </div>
+                  <div style="font-size: 9px; color: #666;">Curverid Tobacco Private Limited</div>
                 </div>
               </div>
-              <div class="header-right">
+              <div class="header-mid">
                 <div>${gdn.document_number || ''} | ${gdn.transporter_dnote_number || ''}</div>
                 <div><strong>Selling Point:</strong> ${gdn.selling_point_name || ''}</div>
                 <div><strong>Booked Status:</strong> ${gdn.has_been_booked ? 'True' : 'False'}</div>
+                ${showTimbReason ? `<div><strong>TIMB Reason:</strong> ${(gdn.timb_failure_reason || '').trim()}</div>` : ''}
+                ${sellingDateStr ? `<div><strong>Selling Date:</strong> ${sellingDateStr}</div>` : ''}
                 <div><strong>Date:</strong> ${formatDate(gdn.create_date)}</div>
               </div>
-              <div style="text-align: right;">
+              <div class="header-right">
                 <div style="border: 1px solid #ccc; padding: 5px; background: white; text-align: center;">
                   <div style="margin-bottom: 5px;">
-                    ${qrCodeBase64 ? 
-                      `<img src="${qrCodeBase64}" style="width: 80px; height: 80px; border: 1px solid #ddd;" alt="QR Code"/>` :
-                      `<div class="qr-placeholder">QR Code<br/>Not Available</div>`
+                    ${qrCodeBase64
+                      ? `<img src="${qrCodeBase64}" style="width: 100px; height: 100px; border: 1px solid #ddd;" alt="QR Code"/>`
+                      : `<div class="qr-placeholder">QR Code<br/>Not Available</div>`
                     }
                   </div>
-                  <div style="font-size: 8px; font-weight: bold; margin-top: 5px;">
-                    ${gdn.document_number || ''}
-                  </div>
+                  <div style="font-size: 8px; font-weight: bold;"><span>${gdn.document_number || ''}</span></div>
                 </div>
               </div>
             </div>
 
-            <!-- Main Content - Two Columns -->
+            <!-- Main Content - Two Columns (matches Odoo) -->
             <div class="two-columns">
-              <!-- Left Column -->
-              <div class="column">
+              <div class="column column-left">
                 <div class="field">
                   <label>Grower No</label>
                   <div class="field-value">${gdn.grower_number || ''}</div>
@@ -332,11 +314,9 @@ export async function printGrowerDeliveryNoteLocally(gdnId: number | string, pri
                 </div>
                 <div class="field">
                   <label>Declared Bales</label>
-                  <div class="field-value" style="text-align: left;">${gdn.number_of_bales_delivered || 0}</div>
+                  <div class="field-value" style="text-align: left;">${gdn.number_of_bales_delivered ?? 0}</div>
                 </div>
               </div>
-
-              <!-- Right Column -->
               <div class="column">
                 <div class="field">
                   <label>Truck Reg No.</label>
@@ -360,12 +340,12 @@ export async function printGrowerDeliveryNoteLocally(gdnId: number | string, pri
                 </div>
                 <div class="field">
                   <label>Validated Bales:</label>
-                  <div class="field-value">${gdn.number_of_bales_delivered || 0}</div>
+                  <div class="field-value">${gdn.number_of_bales_delivered ?? 0}</div>
                 </div>
               </div>
             </div>
 
-            <!-- Footer -->
+            <!-- Footer (matches Odoo) -->
             <div class="footer">
               <div>
                 <div class="field">

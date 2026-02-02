@@ -3,6 +3,7 @@ import { Text, View, TouchableOpacity, Alert, Platform, Vibration } from 'react-
 import { CameraView, Camera } from 'expo-camera';
 import { X, ArrowLeft, Flashlight, FlashlightOff } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 
 interface BarcodeScannerProps {
   scanType?: 'document' | 'bale';
@@ -38,6 +39,7 @@ export default function BarcodeScanner({
   const [scanError, setScanError] = useState<string | null>(null);
   const [lastDetectedValue, setLastDetectedValue] = useState<string | null>(null); // Re-introduce for stability check
   const cameraRef = useRef<CameraView>(null);
+  const beepSoundRef = useRef<Audio.Sound | null>(null);
 
   // Validate 10-digit Code 39 barcode with Modulo 43 check digit
   const validateCheckDigit = (barcode: string): boolean => {
@@ -95,6 +97,35 @@ export default function BarcodeScanner({
       }
     };
     getCameraPermissions();
+  }, []);
+
+  // Preload beep sound for success feedback
+  useEffect(() => {
+    let sound: Audio.Sound | null = null;
+    const loadBeep = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+        const { sound: s } = await Audio.Sound.createAsync(
+          require('../assets/sounds/beep.mp3')
+        );
+        sound = s;
+        beepSoundRef.current = s;
+      } catch (e) {
+        console.warn('Beep sound could not be loaded:', e);
+      }
+    };
+    loadBeep();
+    return () => {
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+        beepSoundRef.current = null;
+      }
+    };
   }, []);
 
   const toggleTorch = async () => {
@@ -262,7 +293,12 @@ export default function BarcodeScanner({
 
     // Play success beep and haptic feedback
     try {
-      Vibration.vibrate(200); 
+      const s = beepSoundRef.current;
+      if (s) {
+        await s.setPositionAsync(0);
+        s.playAsync().catch(() => {});
+      }
+      Vibration.vibrate(200);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.log('Could not play sound or haptic:', error);

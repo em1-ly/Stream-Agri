@@ -66,7 +66,13 @@ export const EXPORT_TABLES: ExportTable[] = [
     displayName: 'Dispatch Notes',
     query: 'SELECT * FROM warehouse_dispatch_note'
   },
+  
 
+  {
+    name: 'data_processing_startofday',
+    displayName: 'Start of Day',
+    query: 'SELECT * FROM data_processing_startofday'
+  },
 
 
 

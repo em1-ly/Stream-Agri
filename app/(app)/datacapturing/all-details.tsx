@@ -345,10 +345,11 @@ const AllDetailsScreen = () => {
       const buyerGrade = baleData.buyer_grade_grade || '';
       const saleCode = baleData.salecode_name || '';
       
-      // Use ID values directly (like abitration.tsx), then resolve to strings when finding selected items
-      const classifierNumberId = baleData.curverid_classifier_number !== null && baleData.curverid_classifier_number !== undefined 
-        ? String(baleData.curverid_classifier_number) 
-        : (baleData.classifier_number ? String(baleData.classifier_number) : lastClassifierNumber);
+      // Use the human-readable classifier_number for display.
+      // curverid_classifier_number is the foreign key ID; classifier_number is the visible code (e.g. "4").
+      const classifierNumberId = baleData.classifier_number
+        ? String(baleData.classifier_number)
+        : (lastClassifierNumber || '');
       
       setFormState(prevState => ({
         timbGrade: timbGrade,
@@ -419,9 +420,9 @@ const AllDetailsScreen = () => {
         setSelectedSaleCode(null);
       }
       
-      // Find and set selected classifier (match abitration.tsx approach)
-      const classifierNumberVal = baleData.curverid_classifier_number !== null && baleData.curverid_classifier_number !== undefined
-        ? String(baleData.curverid_classifier_number)
+      // Find and set selected classifier based on the visible classifier_number, not the foreign key ID
+      const classifierNumberVal = baleData.classifier_number
+        ? String(baleData.classifier_number)
         : '';
       if (classifiers.length > 0 && classifierNumberVal) {
         // Find by matching classifier_number string with the ID string (like abitration.tsx)

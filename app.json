@@ -15,7 +15,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "ios.streamagri",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {

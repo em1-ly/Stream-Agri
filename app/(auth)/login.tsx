@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Button, TextInput, ActivityIndicator, Alert, Keyboard } from "react-native"
 import {Image} from "expo-image"
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Github, Twitter, Settings, Database, Wifi, Phone } from "lucide-react-native"
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Github, Twitter, Settings, Database, Wifi, Phone, ChevronDown, ChevronUp } from "lucide-react-native"
 import { useSession } from "../../authContext"
 import { useFocusEffect, useRouter } from "expo-router"
 import * as SecureStore from 'expo-secure-store';
@@ -45,6 +45,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
   const [syncStatusText, setSyncStatusText] = useState("")
   const [needsInitialSync, setNeedsInitialSync] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [showDetailedLogs, setShowDetailedLogs] = useState(false);
+  const [detailedStatus, setDetailedStatus] = useState<any>(null);
+  const [tableCounts, setTableCounts] = useState<Record<string, number>>({});
   
   const { logIn, localLogin, error: authError } = useSession()
   const router = useRouter()
@@ -130,9 +133,48 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
     const connector = new Connector();
     let maxProgress = 5; // Track maximum progress to prevent going backwards
     
+    // Function to update table counts
+    const updateTableCounts = async () => {
+      try {
+        const tables = [
+          'hr_employee',
+          'receiving_grower_delivery_note',
+          'receiving_transporter_delivery_note',
+          'receiving_bale',
+          'receiving_curverid_bale_sequencing_model',
+          'warehouse_warehouse',
+          'warehouse_location',
+          'warehouse_product',
+          'floor_maintenance_selling_point',
+          'odoo_gms_grower'
+        ];
+        
+        const counts: Record<string, number> = {};
+        for (const table of tables) {
+          try {
+            const result = await powersync.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${table}`);
+            counts[table] = result?.count || 0;
+          } catch (e) {
+            counts[table] = 0; // Table might not exist yet
+          }
+        }
+        setTableCounts(counts);
+      } catch (e) {
+        console.warn('Failed to update table counts:', e);
+      }
+    };
+    
     const unregister = powersync.registerListener({
-      statusChanged: (status) => {
+      statusChanged: async (status) => {
         console.log('🔄 PowerSync status during initial sync:', status);
+        
+        // Store detailed status
+        setDetailedStatus(status);
+        
+        // Update table counts periodically
+        if (status.connected) {
+          updateTableCounts();
+        }
         
         // Update progress bar - downloadProgress is nested in dataFlow
         const statusAny = status as any; // Cast to bypass TypeScript restrictions
@@ -188,6 +230,9 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
           setDownloadProgress(100);
           maxProgress = 100;
           
+          // Final table count update
+          await updateTableCounts();
+          
           setTimeout(() => {
             setIsSyncing(false);
             setNeedsInitialSync(false);
@@ -227,12 +272,53 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
     }
   }
 
+  // Update table counts periodically
+  useEffect(() => {
+    const updateCounts = async () => {
+      try {
+        const tables = [
+          'hr_employee',
+          'receiving_grower_delivery_note',
+          'receiving_transporter_delivery_note',
+          'receiving_bale',
+          'receiving_curverid_bale_sequencing_model',
+          'warehouse_warehouse',
+          'warehouse_location',
+          'warehouse_product',
+          'floor_maintenance_selling_point',
+          'odoo_gms_grower'
+        ];
+        
+        const counts: Record<string, number> = {};
+        for (const table of tables) {
+          try {
+            const result = await powersync.get<{ count: number }>(`SELECT COUNT(*) as count FROM ${table}`);
+            counts[table] = result?.count || 0;
+          } catch (e) {
+            counts[table] = 0;
+          }
+        }
+        setTableCounts(counts);
+      } catch (e) {
+        // Ignore errors
+      }
+    };
+    
+    // Update counts every 3 seconds when detailed logs are shown
+    if (showDetailedLogs) {
+      updateCounts();
+      const interval = setInterval(updateCounts, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [showDetailedLogs]);
+
   useFocusEffect(
     useCallback(() => {
       console.log('useFocusEffect Login Screen');
-      powersync.registerListener({
+      const unregister = powersync.registerListener({
         statusChanged: (status) => {
           setSyncStatus(JSON.stringify(status));
+          setDetailedStatus(status);
           console.log('PowerSync status on Login Screen:', status);
           
           if (status.connected) {
@@ -242,6 +328,16 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
           }
         }
       });
+      
+      // Get initial status
+      const currentStatus = powersync.currentStatus;
+      if (currentStatus) {
+        setDetailedStatus(currentStatus);
+      }
+      
+      return () => {
+        unregister();
+      };
     }, [])
   );
 
@@ -416,19 +512,138 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
             </View>
           )}
 
+          {/* PowerSync Status (always visible when detailed logs are shown) */}
+          {!isSyncing && showDetailedLogs && (
+            <View className="mt-2 mb-4 w-full">
+              <View className="flex-row justify-between items-center mb-2">
+                <Text className="text-sm text-[#65435C] font-semibold">PowerSync Status</Text>
+                <TouchableOpacity 
+                  onPress={() => setShowDetailedLogs(false)}
+                  className="flex-row items-center gap-1"
+                >
+                  <Text className="text-xs text-[#65435C]">Hide</Text>
+                  <ChevronUp size={14} color="#65435C" />
+                </TouchableOpacity>
+              </View>
+              <View className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <View className="mb-2">
+                  <Text className="text-xs text-gray-600">
+                    Status: <Text className="font-semibold" style={{ color: detailedStatus?.connected ? '#10b981' : '#ef4444' }}>
+                      {detailedStatus?.connected ? '🟢 Connected' : '🔴 Disconnected'}
+                    </Text>
+                  </Text>
+                  {detailedStatus?.lastSyncedAt && (
+                    <Text className="text-xs text-gray-500 mt-1">
+                      Last synced: {new Date(detailedStatus.lastSyncedAt).toLocaleString()}
+                    </Text>
+                  )}
+                </View>
+                
+                <View className="mt-2 border-t border-gray-200 pt-2">
+                  <Text className="text-xs font-semibold text-[#65435C] mb-1">Table Records:</Text>
+                  <ScrollView style={{ maxHeight: 150 }}>
+                    {Object.entries(tableCounts).map(([table, count]) => (
+                      <View key={table} className="flex-row justify-between py-0.5">
+                        <Text className="text-xs text-gray-600 flex-1" numberOfLines={1}>
+                          {table.replace(/_/g, ' ')}
+                        </Text>
+                        <Text className="text-xs font-semibold text-[#65435C] ml-2">
+                          {count}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Sync Progress Bar */}
           {isSyncing && (
             <View className="mt-2 mb-4 w-full">
-              <Text className="text-sm text-[#65435C] mb-2 text-center">{syncStatusText}</Text>
+              <Text className="text-sm text-[#65435C] mb-2 text-center font-semibold">{syncStatusText}</Text>
               <View className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
                 <View 
                   className="h-full bg-[#1AD3BB] rounded-full transition-all duration-300"
                   style={{ width: `${downloadProgress}%` }}
                 />
               </View>
-              <Text className="text-xs text-gray-500 mt-1 text-center">
-                {Math.round(downloadProgress)}% complete
-              </Text>
+              <View className="flex-row justify-between items-center mt-2">
+                <Text className="text-xs text-gray-500">
+                  {Math.round(downloadProgress)}% complete
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setShowDetailedLogs(!showDetailedLogs)}
+                  className="flex-row items-center gap-1"
+                >
+                  <Text className="text-xs text-[#65435C] font-semibold">Details</Text>
+                  {showDetailedLogs ? (
+                    <ChevronUp size={14} color="#65435C" />
+                  ) : (
+                    <ChevronDown size={14} color="#65435C" />
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              {/* Detailed Logs Panel */}
+              {showDetailedLogs && (
+                <View className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <Text className="text-xs font-semibold text-[#65435C] mb-2">PowerSync Status</Text>
+                  
+                  {/* Connection Status */}
+                  <View className="mb-2">
+                    <Text className="text-xs text-gray-600">
+                      Status: <Text className="font-semibold" style={{ color: detailedStatus?.connected ? '#10b981' : '#ef4444' }}>
+                        {detailedStatus?.connected ? '🟢 Connected' : '🔴 Disconnected'}
+                      </Text>
+                    </Text>
+                    {detailedStatus?.lastSyncedAt && (
+                      <Text className="text-xs text-gray-500 mt-1">
+                        Last synced: {new Date(detailedStatus.lastSyncedAt).toLocaleTimeString()}
+                      </Text>
+                    )}
+                  </View>
+                  
+                  {/* Data Flow Info */}
+                  {detailedStatus && (detailedStatus as any).dataFlow && (
+                    <View className="mb-2">
+                      <Text className="text-xs text-gray-600">
+                        Downloading: {(detailedStatus as any).dataFlow.downloading ? 'Yes' : 'No'}
+                      </Text>
+                      {(detailedStatus as any).dataFlow.downloadProgress && (
+                        <Text className="text-xs text-gray-500 mt-1">
+                          Progress: {JSON.stringify((detailedStatus as any).dataFlow.downloadProgress)}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                  
+                  {/* Table Counts */}
+                  <View className="mt-2 border-t border-gray-200 pt-2">
+                    <Text className="text-xs font-semibold text-[#65435C] mb-1">Table Records:</Text>
+                    <ScrollView style={{ maxHeight: 150 }}>
+                      {Object.entries(tableCounts).map(([table, count]) => (
+                        <View key={table} className="flex-row justify-between py-0.5">
+                          <Text className="text-xs text-gray-600 flex-1" numberOfLines={1}>
+                            {table.replace(/_/g, ' ')}
+                          </Text>
+                          <Text className="text-xs font-semibold text-[#65435C] ml-2">
+                            {count}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                  
+                  {/* Raw Status JSON (collapsible) */}
+                  <TouchableOpacity 
+                    onPress={() => setShowDetailedLogs(false)}
+                    className="mt-2 pt-2 border-t border-gray-200"
+                  >
+                    <Text className="text-xs text-gray-400 text-center">Tap to collapse</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -490,15 +705,29 @@ export default function LoginScreen({ onRegisterPress }: LoginScreenProps) {
             </View>
           </>
         
-        <TouchableOpacity 
-          className="mt-4 rounded-md border-2 border-[#65435C] p-2 active:opacity-70" 
-          onPress={handleServerConfigPress}
-          activeOpacity={0.7}
-        >
-          <Text className="text-[#1AD3BB] text-center">
-            Server Configuration
-          </Text>
-        </TouchableOpacity>
+        <View className="flex-row gap-2 mt-4">
+          <TouchableOpacity 
+            className="flex-1 rounded-md border-2 border-[#65435C] p-2 active:opacity-70" 
+            onPress={handleServerConfigPress}
+            activeOpacity={0.7}
+          >
+            <Text className="text-[#1AD3BB] text-center">
+              Server Configuration
+            </Text>
+          </TouchableOpacity>
+          
+          {!isSyncing && (
+            <TouchableOpacity 
+              className="flex-1 rounded-md border-2 border-[#65435C] p-2 active:opacity-70" 
+              onPress={() => setShowDetailedLogs(!showDetailedLogs)}
+              activeOpacity={0.7}
+            >
+              <Text className="text-[#1AD3BB] text-center">
+                {showDetailedLogs ? 'Hide' : 'Show'} PowerSync Logs
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* <TouchableOpacity 
           className="mt-4" 

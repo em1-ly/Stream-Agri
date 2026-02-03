@@ -5,13 +5,18 @@ import { ChevronRight, FileSpreadsheet, LogOut } from 'lucide-react-native'
 import { useSession } from '@/authContext'
 import { forceRunImageUploadService } from '@/utils/imageUploadService'
 import { powersync } from '@/powersync/system'
+import { setupPowerSync } from '@/powersync/system'
 import SyncLogs from './SyncLogs'
 import Constants from 'expo-constants'
+import * as Updates from 'expo-updates'
+import { Wifi, WifiOff } from 'lucide-react-native'
 
 const Settings = () => {
   const { signOut } = useSession()
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [password, setPassword] = useState('')
+  const [isReconnecting, setIsReconnecting] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<boolean | null>(null)
   const appVersion = Constants.expoConfig?.version || 'unknown'
   const buildNumber =
     (Constants.expoConfig as any)?.ios?.buildNumber ||
@@ -22,6 +27,26 @@ const Settings = () => {
     (Constants.manifest as any)?.publishedTime ||
     'unknown'
 
+  // Check PowerSync connection status
+  useFocusEffect(
+    useCallback(() => {
+      const checkStatus = () => {
+        try {
+          const status = powersync.currentStatus
+          setSyncStatus(status?.connected ?? false)
+        } catch (e) {
+          console.warn('Failed to get PowerSync status:', e)
+          setSyncStatus(false)
+        }
+      }
+      
+      checkStatus()
+      const interval = setInterval(checkStatus, 2000) // Check every 2 seconds
+      
+      return () => clearInterval(interval)
+    }, [])
+  )
+
   // Trigger image upload check when settings screen is focused
   useFocusEffect(
     useCallback(() => {
@@ -31,6 +56,44 @@ const Settings = () => {
       getSavedSignatures()
     }, [])
   );
+
+  // Handle PowerSync reconnection
+  const handleReconnectPowerSync = async () => {
+    setIsReconnecting(true)
+    try {
+      // Disconnect first
+      await powersync.disconnect()
+      console.log('PowerSync disconnected')
+      
+      // Wait a moment
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Reconnect
+      await setupPowerSync()
+      console.log('PowerSync reconnection initiated')
+      
+      // Check status after a delay
+      setTimeout(() => {
+        const status = powersync.currentStatus
+        const isConnected = status?.connected ?? false
+        setSyncStatus(isConnected)
+        
+        if (isConnected) {
+          Alert.alert('Success', 'PowerSync reconnected successfully!')
+        } else {
+          Alert.alert(
+            'Connection Issue',
+            'PowerSync is still offline. Please check:\n\n1. Internet connection\n2. Server URL is correct\n3. Background App Refresh is enabled\n4. Try logging out and back in'
+          )
+        }
+        setIsReconnecting(false)
+      }, 3000)
+    } catch (error: any) {
+      console.error('Failed to reconnect PowerSync:', error)
+      Alert.alert('Error', `Failed to reconnect: ${error.message || 'Unknown error'}`)
+      setIsReconnecting(false)
+    }
+  }
 
   // Get all saved signatures
   const getSavedSignatures = async () => {
@@ -97,6 +160,38 @@ const Settings = () => {
          
           </View>
 
+        {/* PowerSync Connection Status & Reconnect */}
+        <View className="mt-4 p-4 bg-white rounded-xl border-2" style={{ borderColor: syncStatus === true ? '#10b981' : syncStatus === false ? '#ef4444' : '#9ca3af' }}>
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-row items-center gap-2">
+              {syncStatus === true ? (
+                <Wifi size={20} color="#10b981" />
+              ) : (
+                <WifiOff size={20} color="#ef4444" />
+              )}
+              <Text className="text-lg font-bold text-[#65435C]">
+                PowerSync: {syncStatus === true ? 'Connected' : syncStatus === false ? 'Offline' : 'Checking...'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={handleReconnectPowerSync}
+              disabled={isReconnecting}
+              className={`px-4 py-2 rounded-lg ${isReconnecting ? 'bg-gray-300' : 'bg-[#65435C]'}`}
+            >
+              {isReconnecting ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text className="text-white font-semibold">Reconnect</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {syncStatus === false && (
+            <Text className="text-xs text-red-600 mt-2">
+              ⚠️ If PowerSync stays offline after iOS upgrade, try: 1) Enable Background App Refresh in iOS Settings → Tobacco Logistics, 2) Re-login to the app, 3) Check internet connection
+            </Text>
+          )}
+        </View>
+
         <SyncLogs />
 
         {/* App version & build info */}
@@ -106,6 +201,25 @@ const Settings = () => {
           </Text>
           <Text className="text-xs text-white opacity-60 mt-1">
             Updated: {buildDate}
+          </Text>
+        </View>
+
+        {/* Expo Updates debug info */}
+        <View className="mb-2 rounded-xl bg-white/5 border border-white/15 p-3">
+          <Text className="text-[10px] text-white opacity-80">
+            Runtime: {Updates.runtimeVersion ?? 'n/a'}
+          </Text>
+          <Text className="text-[10px] text-white opacity-80 mt-1">
+            Source: {Updates.isEmbeddedLaunch ? 'embedded' : 'OTA update'}
+          </Text>
+          <Text className="text-[10px] text-white opacity-80 mt-1">
+            Update ID: {Updates.updateId ?? 'embedded'}
+          </Text>
+          <Text className="text-[10px] text-white opacity-80 mt-1">
+            Created:{' '}
+            {Updates.createdAt
+              ? Updates.createdAt.toISOString()
+              : 'n/a'}
           </Text>
         </View>
 

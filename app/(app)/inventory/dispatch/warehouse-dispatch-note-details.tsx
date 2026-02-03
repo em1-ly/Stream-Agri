@@ -34,6 +34,7 @@ type DispatchNoteDetail = {
 
 type DispatchedBale = {
   id: string;
+  shipped_bale_id?: string;
   barcode?: string;
   logistics_barcode?: string;
   shipped_mass?: number;
@@ -279,6 +280,7 @@ const DispatchNoteDetailScreen = () => {
               powersync.watch(
                 `SELECT 
                   db.id,
+                  db.shipped_bale_id,
                   COALESCE(db.barcode, sb.barcode, sb.logistics_barcode) AS barcode,
                   db.logistics_barcode,
                   COALESCE(db.shipped_mass, sb.received_mass, sb.mass) AS shipped_mass,
@@ -454,19 +456,41 @@ const DispatchNoteDetailScreen = () => {
               const isInternal = destWh?.warehouse_type === 'internal' || destWh?.warehouse_type === 'factory_storage';
               const noTransport = !!dispatchNote.no_transportation_details;
 
+              // Preload default destination location (used for both internal no-transport and external)
+              const destDefaultLocation = await powersync.getOptional<any>(
+                'SELECT id FROM warehouse_location WHERE warehouse_id = ? AND default_location = 1 LIMIT 1',
+                [String(dispatchNote.warehouse_destination_id)]
+              );
+
               for (const bale of dispatchedBales) {
+                if (!bale.shipped_bale_id) {
+                  console.warn('⚠️ Skipping bale without shipped_bale_id during dispatch post:', bale.id);
+                  continue;
+                }
+
                 let stockStatus = 'out_stock';
                 let received = 0;
                 let dispatched = 1;
+                let locationId: string | null = null;
+                let dispatchReference: string | null = null;
 
                 if (isInternal) {
                   if (noTransport) {
+                    // Internal + no transport: directly received into destination default location
                     stockStatus = 'in_stock';
                     received = 1;
+                    locationId = destDefaultLocation?.id ? String(destDefaultLocation.id) : null;
                   } else {
+                    // Internal with transport: in transit
                     stockStatus = 'in_transit';
                     received = 0;
                   }
+                } else {
+                  // External warehouse handling – mirror Odoo action_post semantics
+                  stockStatus = 'out_stock';
+                  received = 0;
+                  dispatchReference = dispatchNote.reference || null;
+                  locationId = destDefaultLocation?.id ? String(destDefaultLocation.id) : null;
                 }
 
                 await powersync.execute(
@@ -475,6 +499,8 @@ const DispatchNoteDetailScreen = () => {
                        received = ?, 
                        dispatched = ?, 
                        warehouse_id = ?,
+                       dispatch_reference = ?,
+                       location_id = COALESCE(?, location_id),
                        write_date = ?
                    WHERE id = ?`,
                   [
@@ -482,8 +508,10 @@ const DispatchNoteDetailScreen = () => {
                     received,
                     dispatched,
                     dispatchNote.warehouse_destination_id,
+                    dispatchReference,
+                    locationId,
                     now,
-                    bale.id
+                    bale.shipped_bale_id
                   ]
                 );
               }

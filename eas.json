@@ -30,6 +30,16 @@
       },
       "channel": "preview"
     },
+    "ad-hoc-debug": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Debug"
+      },
+      "channel": "preview",
+      "env": {
+        "EXPO_NO_DEV_CLIENT": "1"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "distribution": "store",

@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "~14.0.4",
-    "@journeyapps/react-native-quick-sqlite": "^2.5.0",
+    "@journeyapps/react-native-quick-sqlite": "^2.4.4",
     "@powerdesigninc/react-native-prompt": "^0.1.2",
     "@powersync/react-native": "^1.20.0",
     "@react-native-async-storage/async-storage": "1.23.1",

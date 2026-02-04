@@ -35,6 +35,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# iOS Podfile.lock (let EAS regenerate it with correct versions)
+ios/Podfile.lock
+
 app-example
 node_modules/
 android/app/build/
